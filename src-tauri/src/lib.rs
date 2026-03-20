@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use std::sync::Mutex;
 use chrono::Utc;
+use base64::Engine;
 
 // ==================== 数据结构 ====================
 
@@ -37,6 +38,7 @@ pub struct RequestData {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<String>,
+    pub body_base64: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +47,7 @@ pub struct ResponseData {
     pub status_text: String,
     pub headers: std::collections::HashMap<String, String>,
     pub body: String,
+    pub body_base64: Option<String>,
     pub duration: u64,
     pub size: usize,
 }
@@ -77,6 +80,7 @@ async fn send_http_request(request: RequestData) -> Result<ResponseData, String>
         "DELETE" => client.delete(&request.url),
         "PATCH" => client.patch(&request.url),
         "HEAD" => client.head(&request.url),
+        "OPTIONS" => client.request(reqwest::Method::OPTIONS, &request.url),
         _ => client.get(&request.url),
     };
     
@@ -86,7 +90,12 @@ async fn send_http_request(request: RequestData) -> Result<ResponseData, String>
     }
     
     // 添加请求体
-    if let Some(body) = request.body {
+    if let Some(body_base64) = request.body_base64 {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(body_base64)
+            .map_err(|e| format!("Invalid base64 request body: {}", e))?;
+        req_builder = req_builder.body(bytes);
+    } else if let Some(body) = request.body {
         req_builder = req_builder.body(body);
     }
     
@@ -97,6 +106,13 @@ async fn send_http_request(request: RequestData) -> Result<ResponseData, String>
     let status_code = status.as_u16();
     let status_text = status.canonical_reason().unwrap_or("Unknown").to_string();
     
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+
     // 收集响应头
     let mut headers = std::collections::HashMap::new();
     for (key, value) in response.headers() {
@@ -106,14 +122,35 @@ async fn send_http_request(request: RequestData) -> Result<ResponseData, String>
     }
     
     // 获取响应体
-    let body = response.text().await.map_err(|e| e.to_string())?;
-    let size = body.len();
+    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    let size = bytes.len();
+
+    let body_base64 = if bytes.is_empty() {
+        None
+    } else {
+        Some(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    };
+
+    let is_text_like = content_type.starts_with("text/")
+        || content_type.contains("json")
+        || content_type.contains("xml")
+        || content_type.contains("html")
+        || content_type.contains("javascript")
+        || content_type.contains("ecmascript")
+        || content_type.contains("x-www-form-urlencoded");
+
+    let body = if is_text_like {
+        String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| String::from_utf8_lossy(&bytes).to_string())
+    } else {
+        String::from_utf8(bytes.to_vec()).unwrap_or_default()
+    };
     
     Ok(ResponseData {
         status: status_code,
         status_text,
         headers,
         body,
+        body_base64,
         duration,
         size,
     })
@@ -144,7 +181,12 @@ async fn save_history(
         Vec::new()
     };
     
-    let id = records.len() as i64 + 1;
+    let id = records
+        .iter()
+        .filter_map(|record| record["id"].as_i64())
+        .max()
+        .unwrap_or(0)
+        + 1;
     let timestamp = Utc::now().to_rfc3339();
     
     let record = serde_json::json!({
