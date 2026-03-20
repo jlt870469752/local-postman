@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Postman</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* 最左侧图标栏 */
+        .icon-sidebar {
+            width: 50px;
+            background: #2c2c2c;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 8px 0;
+            flex-shrink: 0;
+        }
+        
+        .icon-item {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            color: #999;
+            font-size: 18px;
+            transition: all 0.2s;
+            position: relative;
+        }
+        
+        .icon-item:hover {
+            background: #3c3c3c;
+            color: #fff;
+        }
+        
+        .icon-item.active {
+            background: #ff6c37;
+            color: #fff;
+        }
+        
+        .icon-item .tooltip {
+            position: absolute;
+            left: 50px;
+            background: #333;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+            z-index: 1000;
+        }
+        
+        .icon-item:hover .tooltip {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        /* 左侧内容面板 */
+        .sidebar {
+            width: 280px;
+            background: #fff;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+        
+        .sidebar-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .sidebar-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .sidebar-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .sidebar-btn {
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .sidebar-btn:hover {
+            background: #f5f5f5;
+            color: #ff6c37;
+        }
+        
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+        
+        /* Collections 树形结构 */
+        .tree-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #333;
+            transition: background 0.2s;
+        }
+        
+        .tree-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .tree-item.active {
+            background: #fff3e0;
+            color: #ff6c37;
+        }
+        
+        .tree-item .icon {
+            font-size: 14px;
+            width: 16px;
+            text-align: center;
+        }
+        
+        .tree-item .method-badge {
+            font-size: 10px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-weight: 600;
+            margin-right: 4px;
+        }
+        
+        .method-GET { background: #61affe; color: #fff; }
+        .method-POST { background: #49cc90; color: #fff; }
+        .method-PUT { background: #fca130; color: #fff; }
+        .method-DELETE { background: #f93e3e; color: #fff; }
+        .method-PATCH { background: #50e3c2; color: #333; }
+        
+        .tree-folder {
+            font-weight: 500;
+        }
+        
+        .tree-folder .icon {
+            color: #ff6c37;
+        }
+        
+        .tree-children {
+            padding-left: 16px;
+        }
+        
+        /* History 按日期分组 */
+        .history-date-group {
+            margin-bottom: 8px;
+        }
+        
+        .history-date-header {
+            padding: 8px 16px;
+            font-size: 11px;
+            color: #999;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .history-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        
+        .history-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .history-item.active {
+            background: #fff3e0;
+        }
+        
+        .history-item .method-badge {
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-weight: 600;
+        }
+        
+        .history-item .url {
+            flex: 1;
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .history-item .time {
+            font-size: 10px;
+            color: #999;
+        }
+        
+        /* 分割线 */
+        .resizer {
+            width: 4px;
+            background: transparent;
+            cursor: col-resize;
+            transition: background 0.2s;
+        }
+        
+        .resizer:hover {
+            background: #ff6c37;
+        }
+        
+        /* 主内容区 */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: #fff;
+        }
+        
+        /* 顶部工具栏 */
+        .toolbar {
+            padding: 8px 16px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            background: #fafafa;
+        }
+        
+        .toolbar-btn {
+            padding: 6px 12px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #333;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+        
+        .toolbar-btn:hover {
+            border-color: #ff6c37;
+            color: #ff6c37;
+        }
+        
+        .toolbar-btn.primary {
+            background: #ff6c37;
+            border-color: #ff6c37;
+            color: #fff;
+        }
+        
+        .toolbar-btn.primary:hover {
+            background: #e55a2b;
+        }
+        
+        /* 请求构建区 */
+        .request-builder {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* URL 栏 */
+        .url-bar-container {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #fff;
+        }
+        
+        .url-bar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        .method-select {
+            width: 90px;
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #333;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            outline: none;
+        }
+        
+        .method-select:focus {
+            border-color: #ff6c37;
+        }
+        
+        .url-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+        
+        .url-input {
+            width: 100%;
+            padding: 8px 12px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #333;
+            font-size: 13px;
+            outline: none;
+        }
+        
+        .url-input:focus {
+            border-color: #ff6c37;
+            background: #fff;
+        }
+        
+        .send-btn {
+            padding: 8px 24px;
+            background: #ff6c37;
+            border: none;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .send-btn:hover {
+            background: #e55a2b;
+        }
+        
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .save-btn {
+            padding: 8px 16px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #333;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .save-btn:hover {
+            background: #f5f5f5;
+            border-color: #ff6c37;
+        }
+        
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            padding: 0 20px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #fff;
+        }
+        
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .tab:hover {
+            color: #333;
+        }
+        
+        .tab.active {
+            color: #ff6c37;
+            border-bottom-color: #ff6c37;
+            font-weight: 500;
+        }
+        
+        .tab-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            margin-left: 6px;
+            color: #666;
+        }
+        
+        .tab.active .tab-badge {
+            background: #ff6c37;
+            color: #fff;
+        }
+        
+        /* 参数面板 */
+        .tab-panel {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+        }
+        
+        .params-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        
+        .params-table th {
+            text-align: left;
+            padding: 10px 12px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #666;
+            font-weight: 500;
+            font-size: 12px;
+        }
+        
+        .params-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .params-table tr:hover td {
+            background: #f9f9f9;
+        }
+        
+        .param-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #ff6c37;
+        }
+        
+        .param-input {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid transparent;
+            border-radius: 3px;
+            background: transparent;
+            font-size: 13px;
+            color: #333;
+            outline: none;
+        }
+        
+        .param-input:hover {
+            border-color: #ddd;
+            background: #fff;
+        }
+        
+        .param-input:focus {
+            border-color: #ff6c37;
+            background: #fff;
+        }
+        
+        .param-input.key {
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .param-input.value {
+            color: #666;
+        }
+        
+        .param-input.description {
+            color: #999;
+            font-size: 12px;
+        }
+        
+        .btn-delete {
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 4px 8px;
+            opacity: 0;
+            transition: all 0.2s;
+        }
+        
+        .params-table tr:hover .btn-delete {
+            opacity: 1;
+        }
+        
+        .btn-delete:hover {
+            color: #f93e3e;
+        }
+        
+        .btn-add {
+            margin-top: 12px;
+            padding: 8px 16px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #333;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-add:hover {
+            border-color: #ff6c37;
+            color: #ff6c37;
+        }
+        
+        /* Body 编辑器 */
+        .body-editor {
+            width: 100%;
+            min-height: 300px;
+            padding: 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            background: #fafafa;
+            color: #333;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            outline: none;
+        }
+        
+        .body-editor:focus {
+            border-color: #ff6c37;
+            background: #fff;
+        }
+        
+        /* 响应面板 */
+        .response-panel {
+            border-top: 1px solid #e0e0e0;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+        }
+        
+        .response-header {
+            padding: 12px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #fafafa;
+        }
+        
+        .response-info {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+        }
+        
+        .status-code {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+        }
+        
+        .status-success { background: #d4edda; color: #155724; }
+        .status-error { background: #f8d7da; color: #721c24; }
+        .status-warning { background: #fff3cd; color: #856404; }
+        
+        .response-meta {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .response-tabs {
+            display: flex;
+            padding: 0 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .response-tab {
+            padding: 10px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #666;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .response-tab:hover {
+            color: #333;
+        }
+        
+        .response-tab.active {
+            color: #ff6c37;
+            border-bottom-color: #ff6c37;
+        }
+        
+        .response-content {
+            flex: 1;
+            padding: 16px 20px;
+            overflow: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        .response-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        /* JSON 语法高亮 */
+        .json-key { color: #d73a49; }
+        .json-string { color: #032f62; }
+        .json-number { color: #005cc5; }
+        .json-boolean { color: #005cc5; }
+        .json-null { color: #6f42c1; }
+        
+        /* 弹窗 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+        }
+        
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .modal {
+            background: #fff;
+            border-radius: 8px;
+            width: 600px;
+            max-width: 90vw;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 20px;
+            color: #666;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .modal-close:hover {
+            background: #f5f5f5;
+            color: #333;
+        }
+        
+        .modal-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        
+        .modal-textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            resize: vertical;
+            outline: none;
+        }
+        
+        .modal-textarea:focus {
+            border-color: #ff6c37;
+        }
+        
+        .modal-btn {
+            padding: 8px 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .modal-btn.secondary {
+            background: #fff;
+            border: 1px solid #ddd;
+            color: #333;
+        }
+        
+        .modal-btn.secondary:hover {
+            border-color: #999;
+        }
+        
+        .modal-btn.primary {
+            background: #ff6c37;
+            border: 1px solid #ff6c37;
+            color: #fff;
+        }
+        
+        .modal-btn.primary:hover {
+            background: #e55a2b;
+        }
+        
+        /* 隐藏 */
+        .hidden { display: none !important; }
+        
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f5f5f5;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #999;
+        }
+        
+        /* 空状态 */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        /* 响应面板和请求构建区的分割线 */
+        .panel-resizer {
+            height: 4px;
+            background: transparent;
+            cursor: row-resize;
+            transition: background 0.2s;
+        }
+        
+        .panel-resizer:hover {
+            background: #ff6c37;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 最左侧图标栏 -->
+        <div class="icon-sidebar">
+            <div class="icon-item active" onclick="switchSidebar('collections')" title="Collections">
+                📁
+                <span class="tooltip">Collections</span>
+            </div>
+            <div class="icon-item" onclick="switchSidebar('history')" title="History">
+                🕐
+                <span class="tooltip">History</span>
+            </div>
+        </div>
+        
+        <!-- 左侧内容面板 -->
+        <div class="sidebar" id="sidebar">
+            <!-- Collections 面板 -->
+            <div id="collectionsPanel" class="sidebar-panel">
+                <div class="sidebar-header">
+                    <span class="sidebar-title">Collections</span>
+                    <div class="sidebar-actions">
+                        <button class="sidebar-btn" onclick="createNewFolder()" title="New Folder">📁+</button>
+                        <button class="sidebar-btn" onclick="createNewRequest()" title="New Request">➕</button>
+                    </div>
+                </div>
+                <div class="sidebar-content" id="collectionsContent">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+            
+            <!-- History 面板 -->
+            <div id="historyPanel" class="sidebar-panel hidden">
+                <div class="sidebar-header">
+                    <span class="sidebar-title">History</span>
+                    <div class="sidebar-actions">
+                        <button class="sidebar-btn" onclick="clearHistory()" title="Clear History">🗑️</button>
+                    </div>
+                </div>
+                <div class="sidebar-content" id="historyContent">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- 垂直分割线 -->
+        <div class="resizer" id="sidebarResizer"></div>
+        
+        <!-- 主内容区 -->
+        <div class="main">
+            <!-- 顶部工具栏 -->
+            <div class="toolbar">
+                <button class="toolbar-btn" onclick="openImportModal()">
+                    📥 Import
+                </button>
+                <button class="toolbar-btn" onclick="exportCollection()">
+                    📤 Export
+                </button>
+            </div>
+            
+            <!-- 请求构建区 -->
+            <div class="request-builder">
+                <!-- URL 栏 -->
+                <div class="url-bar-container">
+                    <div class="url-bar">
+                        <select class="method-select" id="methodSelect">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="PATCH">PATCH</option>
+                            <option value="HEAD">HEAD</option>
+                            <option value="OPTIONS">OPTIONS</option>
+                        </select>
+                        <div class="url-input-wrapper">
+                            <input type="text" class="url-input" id="urlInput" placeholder="Enter request URL" />
+                        </div>
+                        <button class="send-btn" id="sendBtn" onclick="sendRequest()">Send</button>
+                        <button class="save-btn" onclick="saveRequest()">Save</button>
+                    </div>
+                </div>
+                
+                <!-- 标签页 -->
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('params')">
+                        Params
+                        <span class="tab-badge" id="paramsBadge">0</span>
+                    </div>
+                    <div class="tab" onclick="switchTab('authorization')">Authorization</div>
+                    <div class="tab" onclick="switchTab('headers')">
+                        Headers
+                        <span class="tab-badge" id="headersBadge">0</span>
+                    </div>
+                    <div class="tab" onclick="switchTab('body')">Body</div>
+                </div>
+                
+                <!-- Params 面板 -->
+                <div id="paramsPanel" class="tab-panel">
+                    <div style="margin-bottom: 12px; font-size: 12px; color: #666;">
+                        Query parameters will be automatically added to the URL
+                    </div>
+                    <table class="params-table">
+                        <thead>
+                            <tr>
+                                <th width="40"></th>
+                                <th>Key</th>
+                                <th>Value</th>
+                                <th>Description</th>
+                                <th width="40"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="queryParamsBody">
+                            <!-- 动态插入 -->
+                        </tbody>
+                    </table>
+                    <button class="btn-add" onclick="addQueryParam()">+ Add Param</button>
+                </div>
+                
+                <!-- Authorization 面板 -->
+                <div id="authorizationPanel" class="tab-panel hidden">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔒</div>
+                        <div>Authorization settings will be added here</div>
+                    </div>
+                </div>
+                
+                <!-- Headers 面板 -->
+                <div id="headersPanel" class="tab-panel hidden">
+                    <table class="params-table">
+                        <thead>
+                            <tr>
+                                <th width="40"></th>
+                                <th>Key</th>
+                                <th>Value</th>
+                                <th>Description</th>
+                                <th width="40"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="headersBody">
+                            <!-- 动态插入 -->
+                        </tbody>
+                    </table>
+                    <button class="btn-add" onclick="addHeader()">+ Add Header</button>
+                </div>
+                
+                <!-- Body 面板 -->
+                <div id="bodyPanel" class="tab-panel hidden">
+                    <textarea class="body-editor" id="bodyEditor" placeholder='{"key": "value"}'></textarea>
+                </div>
+            </div>
+            
+            <!-- 水平分割线 -->
+            <div class="panel-resizer" id="panelResizer"></div>
+            
+            <!-- 响应面板 -->
+            <div class="response-panel" id="responsePanel">
+                <div class="response-header">
+                    <div class="response-info">
+                        <span id="statusCode">--</span>
+                        <span class="response-meta" id="responseTime">-- ms</span>
+                        <span class="response-meta" id="responseSize">-- B</span>
+                    </div>
+                </div>
+                <div class="response-tabs">
+                    <div class="response-tab active" onclick="switchResponseTab('body')">Body</div>
+                    <div class="response-tab" onclick="switchResponseTab('headers')">Headers</div>
+                    <div class="response-tab" onclick="switchResponseTab('cookies')">Cookies</div>
+                </div>
+                <div class="response-content" id="responseBody">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📡</div>
+                        <div>Click Send to get a response</div>
+                    </div>
+                </div>
+                <div class="response-content hidden" id="responseHeaders"></div>
+                <div class="response-content hidden" id="responseCookies"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Import 弹窗 -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-title">Import</span>
+                <button class="modal-close" onclick="closeImportModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 12px; font-size: 13px; color: #666;">
+                    Paste cURL command or import from file
+                </div>
+                <textarea class="modal-textarea" id="importTextarea" placeholder="Paste cURL command here...
+
+Example:
+curl -X GET 'https://api.example.com/users' -H 'Authorization: Bearer token'"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" onclick="closeImportModal()">Cancel</button>
+                <button class="modal-btn primary" onclick="importCurl()">Import</button>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
