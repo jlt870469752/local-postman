@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
 use chrono::Utc;
 use base64::Engine;
 
@@ -29,6 +30,8 @@ pub struct CollectionRequest {
 pub struct CollectionFolder {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
     pub children: Vec<CollectionRequest>,
 }
 
@@ -156,6 +159,763 @@ async fn send_http_request(request: RequestData) -> Result<ResponseData, String>
     })
 }
 
+fn parse_postman_description(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Object(map)) => map
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
+fn split_raw_url(raw: &str) -> (String, String) {
+    if let Some(index) = raw.find('?') {
+        let base = raw[..index].to_string();
+        let query = raw[index + 1..].to_string();
+        return (base, query);
+    }
+    (raw.to_string(), String::new())
+}
+
+fn parse_query_string_to_params(query: &str) -> Vec<serde_json::Value> {
+    let mut params = Vec::new();
+    for segment in query.split('&') {
+        let part = segment.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let mut pieces = part.splitn(2, '=');
+        let key = pieces.next().unwrap_or("").trim();
+        let value = pieces.next().unwrap_or("").trim();
+        if key.is_empty() {
+            continue;
+        }
+        params.push(serde_json::json!({
+            "key": key,
+            "value": value,
+            "description": "",
+            "enabled": true
+        }));
+    }
+    params
+}
+
+fn parse_postman_headers(header_value: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
+    let mut headers = Vec::new();
+    let Some(serde_json::Value::Array(entries)) = header_value else {
+        return headers;
+    };
+
+    for entry in entries {
+        let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if key.is_empty() {
+            continue;
+        }
+        let value = entry.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let disabled = entry.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        headers.push(serde_json::json!({
+            "key": key,
+            "value": value,
+            "description": parse_postman_description(entry.get("description")),
+            "enabled": !disabled
+        }));
+    }
+
+    headers
+}
+
+fn parse_postman_kv_entries(entries_value: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
+    let mut fields = Vec::new();
+    let Some(serde_json::Value::Array(entries)) = entries_value else {
+        return fields;
+    };
+
+    for entry in entries {
+        let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let value = match entry.get("value") {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(other) if !other.is_null() => other.to_string(),
+            _ => {
+                if let Some(src) = entry.get("src").and_then(|v| v.as_str()) {
+                    src.to_string()
+                } else {
+                    String::new()
+                }
+            }
+        };
+        let disabled = entry.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        fields.push(serde_json::json!({
+            "key": key,
+            "value": value,
+            "description": parse_postman_description(entry.get("description")),
+            "enabled": !disabled
+        }));
+    }
+
+    fields
+}
+
+fn parse_postman_query_params(query_value: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
+    let mut params = Vec::new();
+    let Some(serde_json::Value::Array(entries)) = query_value else {
+        return params;
+    };
+
+    for entry in entries {
+        let key = entry.get("key").and_then(|v| v.as_str()).unwrap_or("").trim();
+        if key.is_empty() {
+            continue;
+        }
+        let value = entry.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let disabled = entry.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false);
+        params.push(serde_json::json!({
+            "key": key,
+            "value": value,
+            "description": parse_postman_description(entry.get("description")),
+            "enabled": !disabled
+        }));
+    }
+
+    params
+}
+
+fn infer_raw_format_from_headers(headers: &[serde_json::Value]) -> String {
+    for header in headers {
+        let key = header.get("key").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        if key != "content-type" {
+            continue;
+        }
+        let value = header.get("value").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        if value.contains("javascript") || value.contains("ecmascript") {
+            return "javascript".to_string();
+        }
+        if value.contains("json") {
+            return "json".to_string();
+        }
+        if value.contains("html") {
+            return "html".to_string();
+        }
+        if value.contains("xml") {
+            return "xml".to_string();
+        }
+        if value.contains("text/plain") {
+            return "text".to_string();
+        }
+    }
+    "json".to_string()
+}
+
+fn map_postman_raw_language(language: &str, headers: &[serde_json::Value]) -> String {
+    match language.trim().to_lowercase().as_str() {
+        "text" => "text".to_string(),
+        "javascript" | "js" | "ecmascript" => "javascript".to_string(),
+        "json" => "json".to_string(),
+        "html" => "html".to_string(),
+        "xml" => "xml".to_string(),
+        _ => infer_raw_format_from_headers(headers),
+    }
+}
+
+fn build_postman_url_from_parts(url_obj: &serde_json::Map<String, serde_json::Value>) -> String {
+    let protocol = url_obj
+        .get("protocol")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    let host = match url_obj.get("host") {
+        Some(serde_json::Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|p| p.as_str())
+            .collect::<Vec<&str>>()
+            .join("."),
+        Some(serde_json::Value::String(text)) => text.clone(),
+        _ => String::new(),
+    };
+
+    let path = match url_obj.get("path") {
+        Some(serde_json::Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|p| p.as_str())
+            .collect::<Vec<&str>>()
+            .join("/"),
+        Some(serde_json::Value::String(text)) => text.trim_start_matches('/').to_string(),
+        _ => String::new(),
+    };
+
+    let mut url = if !protocol.is_empty() && !host.is_empty() {
+        format!("{}://{}", protocol, host)
+    } else if !host.is_empty() {
+        host
+    } else {
+        String::new()
+    };
+
+    if !path.is_empty() {
+        if !url.ends_with('/') {
+            url.push('/');
+        }
+        url.push_str(&path);
+    }
+
+    url
+}
+
+fn parse_postman_url(url_value: Option<&serde_json::Value>) -> (String, Vec<serde_json::Value>) {
+    let Some(value) = url_value else {
+        return (String::new(), Vec::new());
+    };
+
+    match value {
+        serde_json::Value::String(raw) => {
+            let (base, query) = split_raw_url(raw.trim());
+            let params = parse_query_string_to_params(&query);
+            (base, params)
+        }
+        serde_json::Value::Object(url_obj) => {
+            let raw = url_obj
+                .get("raw")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let fallback = build_postman_url_from_parts(url_obj);
+            let source = if raw.is_empty() { fallback.as_str() } else { raw.as_str() };
+            let (base, raw_query) = split_raw_url(source);
+            let mut params = parse_postman_query_params(url_obj.get("query"));
+            if params.is_empty() {
+                params = parse_query_string_to_params(&raw_query);
+            }
+            let resolved_base = if base.is_empty() { fallback } else { base };
+            (resolved_base, params)
+        }
+        _ => (String::new(), Vec::new()),
+    }
+}
+
+fn parse_postman_body(
+    body_value: Option<&serde_json::Value>,
+    headers: &[serde_json::Value],
+) -> (String, String, String, String, String, String, Vec<serde_json::Value>) {
+    let mut body_type = "none".to_string();
+    let mut raw_format = "json".to_string();
+    let mut body = String::new();
+    let mut binary_body = String::new();
+    let mut graphql_query = String::new();
+    let mut graphql_variables = "{}".to_string();
+    let mut body_fields = Vec::new();
+
+    let Some(body_obj) = body_value.and_then(|v| v.as_object()) else {
+        return (
+            body_type,
+            raw_format,
+            body,
+            binary_body,
+            graphql_query,
+            graphql_variables,
+            body_fields,
+        );
+    };
+
+    let mode = body_obj
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none")
+        .to_lowercase();
+
+    match mode.as_str() {
+        "raw" => {
+            body_type = "raw".to_string();
+            body = body_obj.get("raw").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let language = body_obj
+                .get("options")
+                .and_then(|v| v.get("raw"))
+                .and_then(|v| v.get("language"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            raw_format = map_postman_raw_language(language, headers);
+        }
+        "urlencoded" => {
+            body_type = "x-www-form-urlencoded".to_string();
+            body_fields = parse_postman_kv_entries(body_obj.get("urlencoded"));
+        }
+        "formdata" => {
+            body_type = "form-data".to_string();
+            body_fields = parse_postman_kv_entries(body_obj.get("formdata"));
+        }
+        "graphql" => {
+            body_type = "graphql".to_string();
+            let graphql_obj = body_obj.get("graphql");
+            graphql_query = graphql_obj
+                .and_then(|v| v.get("query"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            graphql_variables = match graphql_obj.and_then(|v| v.get("variables")) {
+                Some(serde_json::Value::String(text)) => {
+                    if text.trim().is_empty() {
+                        "{}".to_string()
+                    } else {
+                        text.clone()
+                    }
+                }
+                Some(other) if other.is_object() || other.is_array() => {
+                    serde_json::to_string(other).unwrap_or_else(|_| "{}".to_string())
+                }
+                _ => "{}".to_string(),
+            };
+        }
+        "file" => {
+            body_type = "binary".to_string();
+            binary_body = String::new();
+        }
+        _ => {}
+    }
+
+    (
+        body_type,
+        raw_format,
+        body,
+        binary_body,
+        graphql_query,
+        graphql_variables,
+        body_fields,
+    )
+}
+
+fn build_postman_collection_request(
+    item: &serde_json::Value,
+    request_counter: &mut usize,
+) -> Option<CollectionRequest> {
+    let request_obj = item.get("request")?;
+
+    let method = request_obj
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("GET")
+        .trim()
+        .to_uppercase();
+    let (url, query_params) = parse_postman_url(request_obj.get("url"));
+    let headers = parse_postman_headers(request_obj.get("header"));
+    let (body_type, raw_format, body, binary_body, graphql_query, graphql_variables, body_fields) =
+        parse_postman_body(request_obj.get("body"), &headers);
+
+    let imported_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let request_name = if imported_name.is_empty() {
+        if url.is_empty() {
+            format!("Request {}", *request_counter)
+        } else {
+            url.clone()
+        }
+    } else {
+        imported_name.to_string()
+    };
+
+    let request_id = format!("import-req-{}", *request_counter);
+    *request_counter += 1;
+
+    let request_payload = serde_json::json!({
+        "id": request_id,
+        "name": request_name,
+        "method": method,
+        "url": url,
+        "queryParams": query_params,
+        "headers": headers,
+        "body": body,
+        "bodyType": body_type,
+        "rawFormat": raw_format,
+        "bodyFields": body_fields,
+        "binaryBody": binary_body,
+        "graphqlQuery": graphql_query,
+        "graphqlVariables": graphql_variables,
+        "isCustomName": !imported_name.is_empty()
+    });
+
+    Some(CollectionRequest {
+        id: request_id.clone(),
+        name: request_name,
+        method: request_payload
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("GET")
+            .to_string(),
+        url: request_payload
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        request_data: serde_json::to_string(&request_payload).unwrap_or_else(|_| "{}".to_string()),
+    })
+}
+
+fn ensure_postman_root_requests_folder(
+    folders: &mut Vec<CollectionFolder>,
+    folder_counter: &mut usize,
+    root_requests_folder_id: &mut Option<String>,
+) -> String {
+    if let Some(existing) = root_requests_folder_id.clone() {
+        return existing;
+    }
+
+    let folder_id = format!("import-folder-{}", *folder_counter);
+    *folder_counter += 1;
+    folders.push(CollectionFolder {
+        id: folder_id.clone(),
+        name: "Requests".to_string(),
+        parent_id: None,
+        children: Vec::new(),
+    });
+    *root_requests_folder_id = Some(folder_id.clone());
+    folder_id
+}
+
+fn collect_postman_items(
+    items: &[serde_json::Value],
+    parent_folder_id: Option<String>,
+    folders: &mut Vec<CollectionFolder>,
+    folder_counter: &mut usize,
+    request_counter: &mut usize,
+    unnamed_folder_counter: &mut usize,
+    root_requests_folder_id: &mut Option<String>,
+) {
+    for item in items {
+        if let Some(children) = item.get("item").and_then(|v| v.as_array()) {
+            let folder_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let resolved_folder_name = if folder_name.is_empty() {
+                let generated = format!("Folder {}", *unnamed_folder_counter);
+                *unnamed_folder_counter += 1;
+                generated
+            } else {
+                folder_name.to_string()
+            };
+
+            let folder_id = format!("import-folder-{}", *folder_counter);
+            *folder_counter += 1;
+            folders.push(CollectionFolder {
+                id: folder_id.clone(),
+                name: resolved_folder_name,
+                parent_id: parent_folder_id.clone(),
+                children: Vec::new(),
+            });
+
+            collect_postman_items(
+                children,
+                Some(folder_id),
+                folders,
+                folder_counter,
+                request_counter,
+                unnamed_folder_counter,
+                root_requests_folder_id,
+            );
+            continue;
+        }
+
+        let Some(request_record) = build_postman_collection_request(item, request_counter) else {
+            continue;
+        };
+
+        let target_folder_id = if let Some(parent_id) = parent_folder_id.clone() {
+            parent_id
+        } else {
+            ensure_postman_root_requests_folder(folders, folder_counter, root_requests_folder_id)
+        };
+
+        if let Some(folder) = folders.iter_mut().find(|folder| folder.id == target_folder_id) {
+            folder.children.push(request_record);
+        }
+    }
+}
+
+fn parse_collection_import_json(value: &serde_json::Value) -> Result<Vec<CollectionFolder>, String> {
+    if let Ok(folders) = serde_json::from_value::<Vec<CollectionFolder>>(value.clone()) {
+        return Ok(folders);
+    }
+
+    if let Ok(folder) = serde_json::from_value::<CollectionFolder>(value.clone()) {
+        return Ok(vec![folder]);
+    }
+
+    let items = value
+        .get("item")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "Unsupported import format. Please provide a Postman collection JSON file.".to_string())?;
+
+    let mut folders = Vec::new();
+    let mut folder_counter = 1usize;
+    let mut request_counter = 1usize;
+    let mut unnamed_folder_counter = 1usize;
+
+    let mut root_requests_folder_id: Option<String> = None;
+    collect_postman_items(
+        items,
+        None,
+        &mut folders,
+        &mut folder_counter,
+        &mut request_counter,
+        &mut unnamed_folder_counter,
+        &mut root_requests_folder_id,
+    );
+
+    if folders.is_empty() {
+        return Err("No request items found in this file".to_string());
+    }
+
+    Ok(folders)
+}
+
+fn load_collections_from_file(data_dir: &str) -> Result<Vec<CollectionFolder>, String> {
+    let collections_file = std::path::Path::new(data_dir).join("collections.json");
+    if !collections_file.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(&collections_file).map_err(|e| e.to_string())?;
+    let folders: Vec<CollectionFolder> = serde_json::from_str(&content).unwrap_or_else(|_| Vec::new());
+    Ok(folders)
+}
+
+fn write_collections_to_file(data_dir: &str, folders: &[CollectionFolder]) -> Result<(), String> {
+    let collections_file = std::path::Path::new(data_dir).join("collections.json");
+    let content = serde_json::to_string_pretty(folders).map_err(|e| e.to_string())?;
+    std::fs::write(&collections_file, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn derive_import_collection_name(json_value: &serde_json::Value, source_name: &str) -> String {
+    let info_name = json_value
+        .get("info")
+        .and_then(|info| info.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if !info_name.is_empty() {
+        return info_name;
+    }
+
+    let stem = std::path::Path::new(source_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if !stem.is_empty() {
+        return stem;
+    }
+
+    "Imported Collection".to_string()
+}
+
+fn build_unique_folder_name(existing: &[CollectionFolder], base_name: &str) -> String {
+    let normalized_base = if base_name.trim().is_empty() {
+        "Imported Collection".to_string()
+    } else {
+        base_name.trim().to_string()
+    };
+
+    let existing_names: HashSet<String> = existing
+        .iter()
+        .map(|folder| folder.name.trim().to_lowercase())
+        .collect();
+
+    if !existing_names.contains(&normalized_base.to_lowercase()) {
+        return normalized_base;
+    }
+
+    let mut index = 2usize;
+    loop {
+        let candidate = format!("{} {}", normalized_base, index);
+        if !existing_names.contains(&candidate.to_lowercase()) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
+
+fn update_request_payload_for_record(request: &CollectionRequest) -> String {
+    let mut value = serde_json::from_str::<serde_json::Value>(&request.request_data).unwrap_or_else(|_| serde_json::json!({}));
+    if let serde_json::Value::Object(map) = &mut value {
+        map.insert("id".to_string(), serde_json::json!(request.id));
+        map.insert("name".to_string(), serde_json::json!(request.name));
+        map.insert("method".to_string(), serde_json::json!(request.method));
+        map.insert("url".to_string(), serde_json::json!(request.url));
+    }
+    serde_json::to_string(&value).unwrap_or_else(|_| request.request_data.clone())
+}
+
+fn merge_import_into_collections(
+    mut existing: Vec<CollectionFolder>,
+    imported_folders: Vec<CollectionFolder>,
+    collection_name: &str,
+) -> Vec<CollectionFolder> {
+    let mut all_folder_ids: HashSet<String> = existing.iter().map(|folder| folder.id.clone()).collect();
+    let mut all_request_ids: HashSet<String> = existing
+        .iter()
+        .flat_map(|folder| folder.children.iter().map(|request| request.id.clone()))
+        .collect();
+
+    let mut folder_seed = Utc::now().timestamp_millis();
+    let folder_id = loop {
+        let candidate = format!("import-folder-{}", folder_seed);
+        if !all_folder_ids.contains(&candidate) {
+            all_folder_ids.insert(candidate.clone());
+            break candidate;
+        }
+        folder_seed += 1;
+    };
+    let root_folder_id = folder_id.clone();
+
+    let mut folder_id_map: HashMap<String, String> = HashMap::new();
+    for folder in &imported_folders {
+        let source_id = folder.id.trim();
+        if source_id.is_empty() {
+            continue;
+        }
+
+        let mapped_id = loop {
+            let candidate = format!("import-folder-{}", folder_seed);
+            folder_seed += 1;
+            if !all_folder_ids.contains(&candidate) {
+                all_folder_ids.insert(candidate.clone());
+                break candidate;
+            }
+        };
+        folder_id_map.insert(source_id.to_string(), mapped_id);
+    }
+
+    existing.push(CollectionFolder {
+        id: folder_id,
+        name: collection_name.to_string(),
+        parent_id: None,
+        children: Vec::new(),
+    });
+
+    let mut request_seed = Utc::now().timestamp_millis();
+    for (index, mut source_folder) in imported_folders.into_iter().enumerate() {
+        let source_folder_id = source_folder.id.trim().to_string();
+        let target_folder_id = if let Some(mapped) = folder_id_map.get(&source_folder_id) {
+            mapped.clone()
+        } else {
+            let generated = loop {
+                let candidate = format!("import-folder-{}-{}", folder_seed, index);
+                folder_seed += 1;
+                if !all_folder_ids.contains(&candidate) {
+                    all_folder_ids.insert(candidate.clone());
+                    break candidate;
+                }
+            };
+            folder_id_map.insert(source_folder_id.clone(), generated.clone());
+            generated
+        };
+
+        let mapped_parent = source_folder
+            .parent_id
+            .as_ref()
+            .and_then(|parent| folder_id_map.get(parent).cloned());
+        let target_parent = mapped_parent.or_else(|| Some(root_folder_id.clone()));
+
+        let normalized_name = if source_folder.name.trim().is_empty() {
+            format!("Folder {}", index + 1)
+        } else {
+            source_folder.name.clone()
+        };
+
+        let mut normalized_requests = Vec::new();
+        for mut request in source_folder.children.drain(..) {
+            if request.name.trim().is_empty() {
+                request.name = if request.url.trim().is_empty() {
+                    "Untitled request".to_string()
+                } else {
+                    request.url.clone()
+                };
+            }
+
+            let request_id = loop {
+                let candidate = format!("import-req-{}", request_seed);
+                request_seed += 1;
+                if !all_request_ids.contains(&candidate) {
+                    all_request_ids.insert(candidate.clone());
+                    break candidate;
+                }
+            };
+            request.id = request_id;
+            request.request_data = update_request_payload_for_record(&request);
+            normalized_requests.push(request);
+        }
+
+        existing.push(CollectionFolder {
+            id: target_folder_id,
+            name: normalized_name,
+            parent_id: target_parent,
+            children: normalized_requests,
+        });
+    }
+
+    existing
+}
+
+fn import_collection_from_json_text(
+    data_dir: &str,
+    json_text: &str,
+    source_name: &str,
+) -> Result<Vec<CollectionFolder>, String> {
+    let json_value: serde_json::Value = serde_json::from_str(json_text)
+        .map_err(|e| format!("Invalid JSON file: {}", e))?;
+    let imported_folders = parse_collection_import_json(&json_value)?;
+    let existing = load_collections_from_file(data_dir)?;
+    let base_name = derive_import_collection_name(&json_value, source_name);
+    let collection_name = build_unique_folder_name(&existing, &base_name);
+    let merged = merge_import_into_collections(existing, imported_folders, &collection_name);
+    write_collections_to_file(data_dir, &merged)?;
+    Ok(merged)
+}
+
+#[tauri::command]
+async fn import_collection_file(
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+) -> Result<Vec<CollectionFolder>, String> {
+    let trimmed_path = file_path.trim();
+    if trimmed_path.is_empty() {
+        return Err("File path is required".to_string());
+    }
+
+    let data_dir = state.data_dir.lock().map_err(|e| e.to_string())?;
+    if data_dir.is_empty() {
+        return Err("Data directory not initialized".to_string());
+    }
+
+    let file_content = std::fs::read_to_string(std::path::Path::new(trimmed_path))
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let source_name = std::path::Path::new(trimmed_path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Imported Collection")
+        .to_string();
+    import_collection_from_json_text(&data_dir, &file_content, &source_name)
+}
+
+#[tauri::command]
+async fn import_collection_json(
+    state: tauri::State<'_, AppState>,
+    json_text: String,
+    source_name: String,
+) -> Result<Vec<CollectionFolder>, String> {
+    let data_dir = state.data_dir.lock().map_err(|e| e.to_string())?;
+    if data_dir.is_empty() {
+        return Err("Data directory not initialized".to_string());
+    }
+    let source = if source_name.trim().is_empty() {
+        "Imported Collection".to_string()
+    } else {
+        source_name
+    };
+    import_collection_from_json_text(&data_dir, &json_text, &source)
+}
+
 // ==================== 历史记录 ====================
 
 #[tauri::command]
@@ -278,6 +1038,7 @@ async fn get_collections(state: tauri::State<'_, AppState>) -> Result<Vec<Collec
             CollectionFolder {
                 id: "1".to_string(),
                 name: "chat".to_string(),
+                parent_id: None,
                 children: vec![
                     CollectionRequest {
                         id: "1-1".to_string(),
@@ -298,6 +1059,7 @@ async fn get_collections(state: tauri::State<'_, AppState>) -> Result<Vec<Collec
             CollectionFolder {
                 id: "2".to_string(),
                 name: "common".to_string(),
+                parent_id: None,
                 children: vec![
                     CollectionRequest {
                         id: "2-1".to_string(),
@@ -352,6 +1114,7 @@ async fn save_collection(
         folders.push(CollectionFolder {
             id: folder_id,
             name: "New Folder".to_string(),
+            parent_id: None,
             children: vec![request],
         });
     }
@@ -360,6 +1123,20 @@ async fn save_collection(
     std::fs::write(&collections_file, content).map_err(|e| e.to_string())?;
     
     Ok(())
+}
+
+#[tauri::command]
+async fn replace_collections(
+    state: tauri::State<'_, AppState>,
+    collections: Vec<CollectionFolder>,
+) -> Result<Vec<CollectionFolder>, String> {
+    let data_dir = state.data_dir.lock().map_err(|e| e.to_string())?;
+    if data_dir.is_empty() {
+        return Err("Data directory not initialized".to_string());
+    }
+
+    write_collections_to_file(&data_dir, &collections)?;
+    Ok(collections)
 }
 
 // ==================== 应用入口 ====================
@@ -394,6 +1171,9 @@ pub fn run() {
             clear_history,
             get_collections,
             save_collection,
+            replace_collections,
+            import_collection_file,
+            import_collection_json,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

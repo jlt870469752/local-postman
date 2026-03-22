@@ -18,66 +18,214 @@
             height: 100vh;
             overflow: hidden;
         }
+
+        .workspace-topbar {
+            height: 36px;
+            flex-shrink: 0;
+            padding: 0 10px 0 12px;
+            background: #f2f2f2;
+            border-bottom: 1px solid #d9d9d9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .workspace-title-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #2f2f2f;
+            min-width: 0;
+        }
+
+        .workspace-title-icon {
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #2f2f2f;
+            flex-shrink: 0;
+        }
+
+        .workspace-title-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .workspace-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #2f2f2f;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .workspace-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .workspace-action-btn {
+            border: 1px solid #d8d8d8;
+            background: #e8e8e8;
+            border-radius: 8px;
+            padding: 7px 13px;
+            min-height: 34px;
+            color: #2f2f2f;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .workspace-action-btn:hover {
+            background: #e1e1e1;
+            border-color: #cfcfcf;
+        }
+
+        .left-shell.sidebar-collapsed .workspace-topbar {
+            justify-content: center;
+            padding: 0;
+            gap: 0;
+        }
+
+        .left-shell.sidebar-collapsed .workspace-title {
+            display: none;
+        }
+
+        .left-shell.sidebar-collapsed .workspace-actions {
+            display: none;
+        }
+
+        .left-shell.sidebar-collapsed .workspace-title-wrap {
+            justify-content: center;
+            gap: 0;
+        }
+
+        .left-shell.sidebar-collapsed .workspace-title-icon {
+            width: 20px;
+            height: 20px;
+        }
+
+        .left-shell.sidebar-collapsed .workspace-title-icon svg {
+            width: 20px;
+            height: 20px;
+        }
         
         .container {
             display: flex;
             height: 100vh;
+            min-height: 0;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        .left-shell {
+            display: flex;
+            flex-direction: column;
+            flex: 0 0 auto;
+            min-width: 84px;
+            background: #f2f2f2;
+            min-height: 0;
+        }
+
+        .left-body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: stretch;
+            min-width: 0;
         }
         
         /* 最左侧图标栏 */
         .icon-sidebar {
-            width: 50px;
-            background: #2c2c2c;
+            width: 84px;
+            background: #f6f6f6;
+            border-right: 1px solid #e4e4e4;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            padding: 8px 0;
+            align-items: stretch;
+            padding: 4px 4px 6px;
+            gap: 4px;
             flex-shrink: 0;
         }
         
         .icon-item {
-            width: 40px;
-            height: 40px;
+            width: 100%;
+            min-height: 48px;
+            border: none;
+            background: transparent;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            gap: 4px;
             cursor: pointer;
-            border-radius: 6px;
-            margin-bottom: 4px;
-            color: #999;
-            font-size: 18px;
+            border-radius: 7px;
+            color: #3f3f3f;
+            font-size: 13px;
             transition: all 0.2s;
-            position: relative;
+            font-family: inherit;
         }
         
         .icon-item:hover {
-            background: #3c3c3c;
-            color: #fff;
+            background: #ececec;
+            color: #222;
         }
         
         .icon-item.active {
-            background: #ff6c37;
-            color: #fff;
+            background: #e8e8e8;
+            color: #222;
         }
-        
-        .icon-item .tooltip {
-            position: absolute;
-            left: 50px;
-            background: #333;
-            color: #fff;
-            padding: 6px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            white-space: nowrap;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.2s;
-            z-index: 1000;
+
+        .icon-item-static {
+            color: #6a6a6a;
         }
-        
-        .icon-item:hover .tooltip {
-            opacity: 1;
-            visibility: visible;
+
+        .icon-glyph {
+            width: 24px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .icon-glyph svg {
+            width: 22px;
+            height: 22px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .icon-label {
+            font-size: 9px;
+            line-height: 1.1;
+            font-weight: 500;
+            letter-spacing: 0;
+            text-align: center;
+        }
+
+        .icon-divider {
+            height: 1px;
+            background: #e4e4e4;
+            margin: 2px 6px 4px;
+        }
+
+        .icon-item-bottom {
+            margin-top: auto;
         }
         
         /* 左侧内容面板 */
@@ -90,15 +238,24 @@
             flex-shrink: 0;
             overflow: hidden;
             transition: width 0.2s, border-color 0.2s;
+            min-width: 0;
         }
 
         .sidebar.collapsed {
             width: 0 !important;
             border-right-color: transparent;
         }
+
+        .sidebar-panel {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
         
         .sidebar-header {
-            padding: 12px 16px;
+            height: 48px;
+            padding: 0 12px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
             justify-content: space-between;
@@ -123,12 +280,28 @@
             background: transparent;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 14px;
             color: #666;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: all 0.2s;
+        }
+
+        .ui-line-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .ui-line-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         
         .sidebar-btn:hover {
@@ -141,6 +314,102 @@
             overflow-y: auto;
             padding: 8px 0;
         }
+
+        .collections-tools {
+            flex-shrink: 0;
+            padding: 4px 6px 2px;
+            border-bottom: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: #fff;
+        }
+
+        .collections-add-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #d8d8d8;
+            border-radius: 6px;
+            background: #f2f2f2;
+            color: #333;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .collections-add-btn:hover {
+            background: #ebebeb;
+            border-color: #cfcfcf;
+        }
+
+        .collections-add-btn .ui-line-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .collections-search-wrap {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            height: 32px;
+            border: 1px solid #dcdcdc;
+            border-radius: 6px;
+            background: #f8f8f8;
+            padding: 0 7px;
+        }
+
+        .collections-search-icon {
+            color: #777;
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .collections-search-icon svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .collections-search-input {
+            flex: 1;
+            min-width: 0;
+            border: none;
+            background: transparent;
+            color: #333;
+            font-size: 12px;
+            outline: none;
+        }
+
+        #collectionsPanel .sidebar-content {
+            padding-top: 2px;
+        }
+
+        .collections-search-input::placeholder {
+            color: #9a9a9a;
+        }
+
+        .history-tools {
+            flex-shrink: 0;
+            padding: 4px 6px 2px;
+            background: #fff;
+        }
+
+        #historyPanel .sidebar-content {
+            padding-top: 2px;
+        }
         
         /* Collections 树形结构 */
         .tree-item {
@@ -152,6 +421,8 @@
             font-size: 13px;
             color: #333;
             transition: background 0.2s;
+            position: relative;
+            min-height: 34px;
         }
         
         .tree-item:hover {
@@ -164,9 +435,52 @@
         }
         
         .tree-item .icon {
-            font-size: 14px;
             width: 16px;
-            text-align: center;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .tree-item .icon svg {
+            width: 15px;
+            height: 15px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .tree-item-text {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tree-folder-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .tree-folder-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tree-folder .icon-chevron svg {
+            transition: transform 0.2s;
+        }
+
+        .tree-folder.collapsed .icon-chevron svg {
+            transform: rotate(-90deg);
         }
         
         .tree-item .method-badge {
@@ -175,6 +489,7 @@
             border-radius: 3px;
             font-weight: 600;
             margin-right: 4px;
+            flex-shrink: 0;
         }
         
         .method-GET { background: #61affe; color: #fff; }
@@ -193,6 +508,151 @@
         
         .tree-children {
             padding-left: 16px;
+        }
+
+        .tree-request.is-draggable {
+            cursor: grab;
+            user-select: none;
+        }
+
+        .tree-request.dragging {
+            opacity: 0.6;
+            cursor: grabbing;
+        }
+
+        .collection-pointer-dragging .tree-request.dragging {
+            pointer-events: none;
+        }
+
+        .tree-request.is-draggable * {
+            cursor: inherit;
+            user-select: none;
+        }
+
+        .collection-pointer-dragging,
+        .collection-pointer-dragging * {
+            cursor: grabbing !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+        }
+
+        .collection-pointer-dragging iframe {
+            pointer-events: none !important;
+        }
+
+        .collection-pointer-cursor-lock,
+        .collection-pointer-cursor-lock * {
+            cursor: grabbing !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+        }
+
+        .collection-pointer-cursor-lock iframe {
+            pointer-events: none !important;
+        }
+
+        .tree-request.drop-target {
+            background: #eef5ff;
+        }
+
+        .tree-request.drop-target-before::before,
+        .tree-request.drop-target-after::after {
+            content: '';
+            position: absolute;
+            left: 12px;
+            right: 12px;
+            height: 2px;
+            border-radius: 1px;
+            background: #5b9bff;
+        }
+
+        .tree-request.drop-target-before::before {
+            top: 0;
+        }
+
+        .tree-request.drop-target-after::after {
+            bottom: 0;
+        }
+
+        .tree-item-action-btn {
+            width: 22px;
+            height: 22px;
+            margin-left: auto;
+            border: none;
+            background: transparent;
+            border-radius: 5px;
+            color: #818181;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.15s;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        .tree-item-action-btn svg {
+            width: 16px;
+            height: 16px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .tree-item:hover .tree-item-action-btn,
+        .tree-item.menu-open .tree-item-action-btn {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .tree-item-action-btn:hover {
+            background: #e9e9e9;
+            color: #333;
+        }
+
+        .tree-folder.drop-target,
+        .tree-children.drop-target {
+            background: #eef5ff;
+        }
+
+        .collection-item-menu {
+            position: fixed;
+            min-width: 156px;
+            background: #fff;
+            border: 1px solid #dcdcdc;
+            border-radius: 8px;
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
+            padding: 4px;
+            z-index: 2600;
+        }
+
+        .collection-item-menu-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .collection-item-menu-btn {
+            width: 100%;
+            border: none;
+            background: transparent;
+            text-align: left;
+            padding: 7px 10px;
+            border-radius: 6px;
+            color: #333;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .collection-item-menu-btn:hover {
+            background: #f4f4f4;
+        }
+
+        .collection-item-menu-btn.danger {
+            color: #d24747;
         }
         
         /* History 按日期分组 */
@@ -249,6 +709,9 @@
         /* 分割线 */
         .resizer {
             width: 4px;
+            height: calc(100% - 36px);
+            margin-top: 36px;
+            align-self: flex-start;
             background: transparent;
             cursor: col-resize;
             transition: background 0.2s;
@@ -260,17 +723,18 @@
         
         /* 主内容区 */
         .main {
-            flex: 1;
+            flex: 1 1 auto;
             display: flex;
             flex-direction: column;
             min-height: 0;
+            min-width: 0;
             overflow: hidden;
             background: #fff;
         }
 
         .request-tabs-bar {
-            height: 44px;
-            flex: 0 0 44px;
+            height: 36px;
+            flex: 0 0 36px;
             flex-shrink: 0;
             border-bottom: 1px solid #e0e0e0;
             background: #fff;
@@ -284,6 +748,7 @@
         .request-tab-add,
         .request-tab-menu-toggle {
             width: 42px;
+            height: 100%;
             border: none;
             background: #fff;
             color: #666;
@@ -323,9 +788,15 @@
             color: #222;
         }
 
+        .request-tab-menu-toggle:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
         .request-tabs-track {
             flex: 1;
             min-width: 0;
+            height: 100%;
             overflow-x: auto;
             overflow-y: hidden;
             scrollbar-width: none;
@@ -564,11 +1035,22 @@
         .request-tabs-dropdown-dot.ready {
             background: #ff6c37;
         }
+
+        .request-workspace-empty {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #fff;
+            padding: 24px;
+        }
         
         /* 顶部工具栏 */
         .toolbar {
             flex-shrink: 0;
-            padding: 8px 16px;
+            height: 48px;
+            padding: 0 16px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
             gap: 8px;
@@ -615,21 +1097,28 @@
             min-height: 0;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible;
         }
         
         /* URL 栏 */
         .url-bar-container {
             flex-shrink: 0;
-            padding: 16px 20px;
+            height: 48px;
+            padding: 0 16px;
             border-bottom: 1px solid #e0e0e0;
             background: #fff;
+            position: relative;
+            z-index: 20;
+            overflow: visible;
+            display: flex;
+            align-items: center;
         }
         
         .url-bar {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             align-items: center;
+            width: 100%;
         }
 
         .request-name-field {
@@ -661,9 +1150,22 @@
 
         .request-name-icon {
             color: #8a8a8a;
-            font-size: 13px;
-            line-height: 1;
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             flex-shrink: 0;
+        }
+
+        .request-name-icon svg {
+            width: 15px;
+            height: 15px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         .request-name-input {
@@ -685,22 +1187,113 @@
             color: #8f8f8f;
         }
         
-        .method-select {
-            width: 90px;
-            padding: 8px 12px;
-            background: #f5f5f5;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        .method-picker {
+            position: relative;
+            width: 130px;
+            flex-shrink: 0;
+            z-index: 30;
+        }
+
+        .method-picker-trigger {
+            width: 100%;
+            height: 36px;
+            padding: 0 10px;
+            background: #fff;
+            border: 1px solid #7daee6;
+            border-radius: 6px;
             color: #333;
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 700;
             cursor: pointer;
             outline: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s;
         }
-        
-        .method-select:focus {
-            border-color: #ff6c37;
+
+        .method-picker-trigger:hover {
+            border-color: #6ca2e2;
         }
+
+        .method-picker.open .method-picker-trigger {
+            border-color: #6ca2e2;
+            box-shadow: 0 0 0 2px rgba(108, 162, 226, 0.18);
+        }
+
+        .method-picker-value {
+            font-size: 11px;
+            line-height: 1.1;
+            letter-spacing: 0.01em;
+            font-weight: 800;
+        }
+
+        .method-picker-caret {
+            font-size: 14px;
+            color: #777;
+            line-height: 1;
+        }
+
+        .method-picker-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            width: 300px;
+            max-height: 460px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.16);
+            z-index: 1300;
+            padding: 8px;
+        }
+
+        .method-picker-item {
+            width: 100%;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            padding: 12px 14px;
+            text-align: left;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 800;
+            line-height: 1.2;
+            transition: background 0.18s;
+            margin-bottom: 2px;
+        }
+
+        .method-picker-item:hover {
+            background: #f4f4f4;
+        }
+
+        .method-picker-item.active {
+            background: #ededed;
+        }
+
+        .method-picker-divider {
+            margin: 8px 10px;
+            border-top: 1px solid #e5e5e5;
+        }
+
+        .method-picker-footer {
+            padding: 8px 12px 10px;
+            color: #666;
+            font-size: 15px;
+        }
+
+        .method-select-hidden {
+            display: none;
+        }
+
+        .method-color-GET { color: #0a8f43; }
+        .method-color-POST { color: #b67a00; }
+        .method-color-PUT { color: #1066c2; }
+        .method-color-PATCH { color: #6f43b3; }
+        .method-color-DELETE { color: #9f1c14; }
+        .method-color-HEAD { color: #0a8f43; }
+        .method-color-OPTIONS { color: #b11f76; }
         
         .url-input-wrapper {
             flex: 1;
@@ -709,12 +1302,13 @@
         
         .url-input {
             width: 100%;
-            padding: 8px 12px;
+            height: 36px;
+            padding: 0 10px;
             background: #f5f5f5;
             border: 1px solid #ddd;
-            border-radius: 4px;
+            border-radius: 6px;
             color: #333;
-            font-size: 13px;
+            font-size: 12px;
             outline: none;
         }
         
@@ -724,19 +1318,30 @@
         }
         
         .send-btn {
-            padding: 8px 24px;
+            height: 36px;
+            padding: 0 18px;
             background: #ff6c37;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             color: #fff;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
             transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
         }
         
         .send-btn:hover {
             background: #e55a2b;
+        }
+
+        .send-btn.is-sending {
+            background: #d84b4b;
+        }
+
+        .send-btn.is-sending:hover {
+            background: #bf3c3c;
         }
         
         .send-btn:disabled {
@@ -757,10 +1362,37 @@
             align-items: center;
             gap: 6px;
         }
+
+        .save-btn-icon {
+            width: 14px;
+            height: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .save-btn-icon svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
         
         .save-btn:hover {
             background: #f5f5f5;
             border-color: #ff6c37;
+        }
+
+        .save-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            border-color: #ddd;
+            color: #999;
+            background: #f8f8f8;
         }
         
         /* 标签页 */
@@ -768,12 +1400,17 @@
             flex-shrink: 0;
             display: flex;
             padding: 0 20px;
+            height: 48px;
+            align-items: stretch;
             border-bottom: 1px solid #e0e0e0;
             background: #fff;
         }
         
         .tab {
-            padding: 12px 20px;
+            padding: 0 20px;
+            height: 100%;
+            display: inline-flex;
+            align-items: center;
             cursor: pointer;
             border-bottom: 2px solid transparent;
             transition: all 0.2s;
@@ -808,6 +1445,7 @@
         /* 参数面板 */
         .tab-panel {
             flex: 1;
+            min-height: 0;
             overflow-y: auto;
             padding: 16px 20px;
         }
@@ -816,15 +1454,22 @@
             width: 100%;
             border-collapse: collapse;
             font-size: 13px;
+            border: 1px solid #e2e2e2;
         }
         
         .params-table th {
             text-align: left;
-            padding: 10px 12px;
+            padding: 9px 12px;
             border-bottom: 1px solid #e0e0e0;
             color: #666;
-            font-weight: 500;
+            font-weight: 600;
             font-size: 12px;
+            background: #f6f6f6;
+        }
+
+        .params-table th:not(:last-child),
+        .params-table td:not(:last-child) {
+            border-right: 1px solid #ececec;
         }
         
         .params-table td {
@@ -841,6 +1486,11 @@
             height: 16px;
             cursor: pointer;
             accent-color: #ff6c37;
+        }
+
+        .table-master-checkbox {
+            display: block;
+            margin: 0 auto;
         }
         
         .param-input {
@@ -938,29 +1588,29 @@
             display: flex;
             align-items: center;
             flex-wrap: wrap;
-            gap: 16px;
-            margin-bottom: 14px;
+            gap: 10px;
+            margin-bottom: 8px;
         }
 
         .raw-format-inline {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-left: 12px;
+            gap: 6px;
+            margin-left: 6px;
         }
 
         .raw-format-label {
-            font-size: 12px;
+            font-size: 11px;
             color: #666;
         }
 
         .raw-format-select {
-            min-width: 170px;
-            padding: 6px 10px;
+            min-width: 136px;
+            padding: 4px 7px;
             border: 1px solid #ddd;
-            border-radius: 6px;
+            border-radius: 5px;
             background: #fff;
-            font-size: 13px;
+            font-size: 12px;
             color: #333;
             outline: none;
         }
@@ -972,8 +1622,8 @@
         .body-type-option {
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 14px;
+            gap: 4px;
+            font-size: 12px;
             color: #333;
             cursor: pointer;
         }
@@ -983,7 +1633,7 @@
         }
 
         .body-section {
-            margin-top: 10px;
+            margin-top: 6px;
         }
 
         .body-empty {
@@ -1011,14 +1661,15 @@
             flex-direction: column;
             min-height: 200px;
             flex: 0 0 280px;
+            position: relative;
         }
         
         .response-header {
-            padding: 10px 20px;
+            padding: 7px 14px;
             border-bottom: 1px solid #e0e0e0;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 6px;
             background: #fafafa;
         }
 
@@ -1026,17 +1677,17 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
         .response-view-tabs {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
+            gap: 4px;
+            padding: 3px;
+            border: 1px solid #dcdcdc;
+            border-radius: 7px;
             background: #fff;
         }
 
@@ -1044,9 +1695,9 @@
             border: none;
             background: transparent;
             color: #666;
-            font-size: 13px;
-            padding: 6px 12px;
-            border-radius: 6px;
+            font-size: 12px;
+            padding: 5px 9px;
+            border-radius: 5px;
             cursor: pointer;
             transition: all 0.2s;
         }
@@ -1062,34 +1713,148 @@
             font-weight: 600;
         }
 
-        .response-select {
-            padding: 6px 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            background: #fff;
-            color: #333;
-            font-size: 13px;
-            outline: none;
+        .response-format-picker {
+            position: relative;
+            z-index: 40;
         }
 
-        .response-select:focus {
-            border-color: #ff6c37;
+        .response-format-trigger {
+            min-width: 118px;
+            padding: 4px 7px;
+            border: 1px solid #d0d0d0;
+            border-radius: 6px;
+            background: #efefef;
+            color: #2f2f2f;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 5px;
+            transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        }
+
+        .response-format-trigger:hover {
+            background: #e8e8e8;
+            border-color: #c6c6c6;
+        }
+
+        .response-format-picker.open .response-format-trigger {
+            border-color: #b8b8b8;
+            box-shadow: 0 0 0 2px rgba(130, 130, 130, 0.15);
+        }
+
+        .response-format-trigger-main {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .response-format-caret {
+            color: #666;
+            font-size: 11px;
+            line-height: 1;
+        }
+
+        .response-format-menu {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            min-width: 172px;
+            background: #f2f2f2;
+            border: 1px solid #d4d4d4;
+            border-radius: 7px;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+            padding: 4px;
+            z-index: 1350;
+        }
+
+        .response-format-picker.open-up .response-format-menu {
+            top: auto;
+            bottom: calc(100% + 8px);
+        }
+
+        .response-format-item {
+            width: 100%;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            padding: 6px 6px;
+            color: #2f2f2f;
+            font-size: 12px;
+            line-height: 1.25;
+            text-align: left;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background 0.18s;
+        }
+
+        .response-format-item:hover {
+            background: #e7e7e7;
+        }
+
+        .response-format-item.active {
+            background: #dcdcdc;
+        }
+
+        .response-format-check {
+            width: 10px;
+            flex-shrink: 0;
+            opacity: 0;
+            color: #555;
+            font-size: 10px;
+        }
+
+        .response-format-item.active .response-format-check {
+            opacity: 1;
+        }
+
+        .response-format-icon {
+            width: 18px;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            color: #2f2f2f;
+        }
+
+        .response-format-text {
+            flex: 1;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            color: #2f2f2f;
+        }
+
+        .response-format-divider {
+            margin: 5px 6px;
+            border-top: 1px solid #d6d6d6;
+        }
+
+        .response-select-hidden {
+            display: none;
         }
 
         .response-body-toolbar {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             flex-wrap: wrap;
         }
 
         .response-toolbar-btn {
-            padding: 6px 10px;
+            padding: 4px 8px;
             border: 1px solid #ddd;
-            border-radius: 6px;
+            border-radius: 5px;
             background: #fff;
             color: #333;
-            font-size: 12px;
+            font-size: 11px;
             cursor: pointer;
             transition: all 0.2s;
         }
@@ -1134,7 +1899,7 @@
 
         .response-info {
             display: flex;
-            gap: 16px;
+            gap: 12px;
             align-items: center;
         }
         
@@ -1150,7 +1915,7 @@
         .status-warning { background: #fff3cd; color: #856404; }
         
         .response-meta {
-            font-size: 12px;
+            font-size: 11px;
             color: #666;
         }
         
@@ -1340,6 +2105,56 @@
         .modal-textarea:focus {
             border-color: #ff6c37;
         }
+
+        .modal-input {
+            width: 100%;
+            height: 38px;
+            padding: 0 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #333;
+            outline: none;
+        }
+
+        .modal-input:focus {
+            border-color: #ff6c37;
+        }
+
+        .import-file-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .import-file-btn {
+            flex-shrink: 0;
+            height: 34px;
+            padding: 0 12px;
+            border: 1px solid #d8d8d8;
+            border-radius: 6px;
+            background: #f4f4f4;
+            color: #333;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .import-file-btn:hover {
+            background: #ececec;
+            border-color: #cfcfcf;
+        }
+
+        .import-file-name {
+            min-width: 0;
+            flex: 1;
+            color: #666;
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         
         .modal-btn {
             padding: 8px 20px;
@@ -1399,49 +2214,155 @@
         }
         
         .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
+            width: 44px;
+            height: 44px;
+            margin: 0 auto 14px;
+            color: #9a9a9a;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .empty-state-icon svg {
+            width: 42px;
+            height: 42px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.7;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         
         /* 响应面板和请求构建区的分割线 */
         .panel-resizer {
-            height: 4px;
+            height: 6px;
+            min-height: 6px;
+            flex: 0 0 6px;
             background: transparent;
             cursor: row-resize;
             transition: background 0.2s;
+            position: relative;
+            z-index: 30;
         }
         
         .panel-resizer:hover {
             background: #ff6c37;
         }
     </style>
-  <script type="module" crossorigin src="/assets/index-DM2BTaz0.js"></script>
+  <script type="module" crossorigin src="/assets/index-B-19PIsS.js"></script>
 </head>
 <body>
     <div class="container">
-        <!-- 最左侧图标栏 -->
-        <div class="icon-sidebar">
-            <div class="icon-item active" onclick="switchSidebar('collections', event)" title="Collections">
-                📁
-                <span class="tooltip">Collections</span>
+        <div class="left-shell">
+            <div class="workspace-topbar">
+                <div class="workspace-title-wrap">
+                    <span class="workspace-title-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <rect x="6.5" y="10" width="11" height="9" rx="2"></rect>
+                            <path d="M9 10V7.5a3 3 0 0 1 6 0V10"></path>
+                        </svg>
+                    </span>
+                    <span class="workspace-title">My Workspace</span>
+                </div>
+                <div class="workspace-actions">
+                    <button class="workspace-action-btn" type="button" onclick="createNewRequestTab()">New</button>
+                    <button class="workspace-action-btn" type="button" onclick="openImportModal()">Import</button>
+                </div>
             </div>
-            <div class="icon-item" onclick="switchSidebar('history', event)" title="History">
-                🕐
-                <span class="tooltip">History</span>
-            </div>
+            <div class="left-body">
+                <!-- 最左侧图标栏 -->
+                <div class="icon-sidebar">
+            <button class="icon-item active" type="button" onclick="switchSidebar('collections', event)" title="Collections">
+                <span class="icon-glyph">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 7h16" />
+                        <path d="M6 7l1-3h10l1 3" />
+                        <path d="M6 7l1.4 12h9.2L18 7" />
+                    </svg>
+                </span>
+                <span class="icon-label">Collections</span>
+            </button>
+
+            <button class="icon-item icon-item-static" type="button" onclick="openSidebarFeature('Environments')">
+                <span class="icon-glyph">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="4" y="5" width="16" height="14" rx="2"></rect>
+                        <path d="M8 10h6"></path>
+                        <path d="M8 14h4"></path>
+                        <path d="M16 14h0"></path>
+                    </svg>
+                </span>
+                <span class="icon-label">Environments</span>
+            </button>
+
+            <button class="icon-item" type="button" onclick="switchSidebar('history', event)" title="History">
+                <span class="icon-glyph">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 3-6.7" />
+                        <path d="M3 4v4h4" />
+                        <path d="M12 8v5l3 2" />
+                    </svg>
+                </span>
+                <span class="icon-label">History</span>
+            </button>
+
+            <button class="icon-item icon-item-static" type="button" onclick="openSidebarFeature('Flows')">
+                <span class="icon-glyph">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="6" cy="6" r="2"></circle>
+                        <circle cx="18" cy="12" r="2"></circle>
+                        <circle cx="6" cy="18" r="2"></circle>
+                        <path d="M8 6h6l2 4" />
+                        <path d="M8 18h6l2-4" />
+                    </svg>
+                </span>
+                <span class="icon-label">Flows</span>
+            </button>
+
+            <div class="icon-divider"></div>
+
+            <button class="icon-item icon-item-static icon-item-bottom" type="button" onclick="openSidebarFeature('Workspace')">
+                <span class="icon-glyph">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="3.5" y="3.5" width="6" height="6"></rect>
+                        <rect x="14.5" y="3.5" width="6" height="6"></rect>
+                        <rect x="3.5" y="14.5" width="6" height="6"></rect>
+                        <path d="M17.5 14.5v6"></path>
+                        <path d="M14.5 17.5h6"></path>
+                    </svg>
+                </span>
+                <span class="icon-label"> </span>
+            </button>
         </div>
         
-        <!-- 左侧内容面板 -->
-        <div class="sidebar" id="sidebar">
+                <!-- 左侧内容面板 -->
+                <div class="sidebar" id="sidebar">
             <!-- Collections 面板 -->
             <div id="collectionsPanel" class="sidebar-panel">
-                <div class="sidebar-header">
-                    <span class="sidebar-title">Collections</span>
-                    <div class="sidebar-actions">
-                        <button class="sidebar-btn" onclick="createNewFolder()" title="New Folder">📁+</button>
-                        <button class="sidebar-btn" onclick="createNewRequest()" title="New Request">➕</button>
-                        <button class="sidebar-btn" onclick="openImportModal()" title="Import">📥</button>
-                    </div>
+                <div class="collections-tools">
+                    <button class="collections-add-btn" type="button" onclick="createCollectionFolder()" title="Create new collection">
+                        <span class="ui-line-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12 5v14"></path>
+                                <path d="M5 12h14"></path>
+                            </svg>
+                        </span>
+                    </button>
+                    <label class="collections-search-wrap" for="collectionsSearchInput">
+                        <span class="collections-search-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <circle cx="11" cy="11" r="6"></circle>
+                                <path d="M16 16l4 4"></path>
+                            </svg>
+                        </span>
+                        <input
+                            type="text"
+                            id="collectionsSearchInput"
+                            class="collections-search-input"
+                            placeholder="Search collections"
+                            oninput="filterCollections(this.value)"
+                        />
+                    </label>
                 </div>
                 <div class="sidebar-content" id="collectionsContent">
                     <!-- 动态生成 -->
@@ -1453,13 +2374,40 @@
                 <div class="sidebar-header">
                     <span class="sidebar-title">History</span>
                     <div class="sidebar-actions">
-                        <button class="sidebar-btn" onclick="clearHistory()" title="Clear History">🗑️</button>
+                        <button class="sidebar-btn" onclick="clearHistory()" title="Clear History">
+                            <span class="ui-line-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M4.5 7h15"></path>
+                                    <path d="M9 7V5h6v2"></path>
+                                    <path d="M7 7l1 12h8l1-12"></path>
+                                </svg>
+                            </span>
+                        </button>
                     </div>
+                </div>
+                <div class="history-tools">
+                    <label class="collections-search-wrap" for="historySearchInput">
+                        <span class="collections-search-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <circle cx="11" cy="11" r="6"></circle>
+                                <path d="M16 16l4 4"></path>
+                            </svg>
+                        </span>
+                        <input
+                            type="text"
+                            id="historySearchInput"
+                            class="collections-search-input"
+                            placeholder="Search history"
+                            oninput="filterHistory(this.value)"
+                        />
+                    </label>
                 </div>
                 <div class="sidebar-content" id="historyContent">
                     <!-- 动态生成 -->
                 </div>
+                </div>
             </div>
+        </div>
         </div>
         
         <!-- 垂直分割线 -->
@@ -1489,35 +2437,79 @@
                 </div>
             </div>
 
+            <div class="request-workspace-empty hidden" id="requestWorkspaceEmpty">
+                <div class="empty-state">
+                    <div class="empty-state-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <circle cx="12" cy="13" r="2"></circle>
+                            <path d="M12 3v6"></path>
+                            <path d="M8 9a6 6 0 0 0 0 8"></path>
+                            <path d="M16 9a6 6 0 0 1 0 8"></path>
+                        </svg>
+                    </div>
+                    <div>No request tab. Click + to create one.</div>
+                </div>
+            </div>
+
             <!-- 顶部工具栏 -->
-            <div class="toolbar">
+            <div class="toolbar" id="requestToolbar">
                 <div class="request-name-field">
-                    <span class="request-name-icon">📝</span>
+                    <span class="request-name-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M7 3.5h7l4 4V20.5H7z"></path>
+                            <path d="M14 3.5v4h4"></path>
+                            <path d="M10 12h5"></path>
+                            <path d="M10 16h5"></path>
+                        </svg>
+                    </span>
                     <div class="request-name-shell">
                         <input type="text" class="request-name-input" id="requestNameInput" placeholder="Request name (defaults to URL)" />
                     </div>
                 </div>
                 <div class="toolbar-spacer"></div>
-                <button class="save-btn" onclick="saveRequest()">
-                    <span>💾</span>
+                <button class="save-btn" id="saveBtn" onclick="saveRequest()">
+                    <span class="save-btn-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M5 3.5h12l2 2v15H5z"></path>
+                            <path d="M8 3.5v6h8v-6"></path>
+                            <path d="M9 15.5h6"></path>
+                        </svg>
+                    </span>
                     <span>Save</span>
                 </button>
             </div>
             
             <!-- 请求构建区 -->
-            <div class="request-builder">
+            <div class="request-builder" id="requestBuilder">
                 <!-- URL 栏 -->
                 <div class="url-bar-container">
                     <div class="url-bar">
-                        <select class="method-select" id="methodSelect">
-                            <option value="GET">GET</option>
-                            <option value="POST">POST</option>
-                            <option value="PUT">PUT</option>
-                            <option value="DELETE">DELETE</option>
-                            <option value="PATCH">PATCH</option>
-                            <option value="HEAD">HEAD</option>
-                            <option value="OPTIONS">OPTIONS</option>
-                        </select>
+                        <div class="method-picker" id="methodPicker">
+                            <button class="method-picker-trigger" type="button" onclick="toggleMethodPicker(event)">
+                                <span class="method-picker-value method-color-GET" id="methodPickerValue">GET</span>
+                                <span class="method-picker-caret">⌄</span>
+                            </button>
+                            <div class="method-picker-menu hidden" id="methodPickerMenu">
+                                <button class="method-picker-item method-color-GET active" type="button" data-method="GET" onclick="selectMethod('GET')">GET</button>
+                                <button class="method-picker-item method-color-POST" type="button" data-method="POST" onclick="selectMethod('POST')">POST</button>
+                                <button class="method-picker-item method-color-PUT" type="button" data-method="PUT" onclick="selectMethod('PUT')">PUT</button>
+                                <button class="method-picker-item method-color-PATCH" type="button" data-method="PATCH" onclick="selectMethod('PATCH')">PATCH</button>
+                                <button class="method-picker-item method-color-DELETE" type="button" data-method="DELETE" onclick="selectMethod('DELETE')">DELETE</button>
+                                <button class="method-picker-item method-color-HEAD" type="button" data-method="HEAD" onclick="selectMethod('HEAD')">HEAD</button>
+                                <button class="method-picker-item method-color-OPTIONS" type="button" data-method="OPTIONS" onclick="selectMethod('OPTIONS')">OPTIONS</button>
+                                <div class="method-picker-divider"></div>
+                                <div class="method-picker-footer">Type a new method</div>
+                            </div>
+                            <select class="method-select-hidden" id="methodSelect">
+                                <option value="GET">GET</option>
+                                <option value="POST">POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="DELETE">DELETE</option>
+                                <option value="PATCH">PATCH</option>
+                                <option value="HEAD">HEAD</option>
+                                <option value="OPTIONS">OPTIONS</option>
+                            </select>
+                        </div>
                         <div class="url-input-wrapper">
                             <input type="text" class="url-input" id="urlInput" placeholder="Enter request URL" />
                         </div>
@@ -1547,7 +2539,15 @@
                     <table class="params-table">
                         <thead>
                             <tr>
-                                <th width="40"></th>
+                                <th width="44">
+                                    <input
+                                        type="checkbox"
+                                        class="param-checkbox table-master-checkbox"
+                                        id="queryParamsSelectAll"
+                                        onchange="toggleAllQueryParams(this.checked)"
+                                        title="Select/Deselect all params"
+                                    />
+                                </th>
                                 <th>Key</th>
                                 <th>Value</th>
                                 <th>Description</th>
@@ -1564,7 +2564,12 @@
                 <!-- Authorization 面板 -->
                 <div id="authorizationPanel" class="tab-panel hidden">
                     <div class="empty-state">
-                        <div class="empty-state-icon">🔒</div>
+                        <div class="empty-state-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                                <rect x="6.5" y="10" width="11" height="10" rx="2"></rect>
+                                <path d="M9 10V7.5a3 3 0 0 1 6 0V10"></path>
+                            </svg>
+                        </div>
                         <div>Authorization settings will be added here</div>
                     </div>
                 </div>
@@ -1574,7 +2579,15 @@
                     <table class="params-table">
                         <thead>
                             <tr>
-                                <th width="40"></th>
+                                <th width="44">
+                                    <input
+                                        type="checkbox"
+                                        class="param-checkbox table-master-checkbox"
+                                        id="headersSelectAll"
+                                        onchange="toggleAllHeaders(this.checked)"
+                                        title="Select/Deselect all headers"
+                                    />
+                                </th>
                                 <th>Key</th>
                                 <th>Value</th>
                                 <th>Description</th>
@@ -1669,15 +2682,62 @@
                         </div>
                     </div>
                     <div class="response-body-toolbar" id="bodyViewTools">
-                        <select class="response-select" id="bodyFormatSelect" onchange="switchBodyFormat(this.value)">
-                            <option value="json">JSON</option>
-                            <option value="xml">XML</option>
-                            <option value="html">HTML</option>
-                            <option value="javascript">JavaScript</option>
-                            <option value="raw">Raw</option>
-                            <option value="hex">Hex</option>
-                            <option value="base64">Base64</option>
-                        </select>
+                        <div class="response-format-picker" id="bodyFormatPicker">
+                            <button class="response-format-trigger" type="button" onclick="toggleBodyFormatPicker(event)">
+                                <span class="response-format-trigger-main">
+                                    <span class="response-format-icon" id="bodyFormatPickerIcon">{}</span>
+                                    <span id="bodyFormatPickerLabel">JSON</span>
+                                </span>
+                                <span class="response-format-caret">⌄</span>
+                            </button>
+                            <div class="response-format-menu hidden" id="bodyFormatMenu">
+                                <button class="response-format-item active" type="button" data-format="json" onclick="selectBodyFormat('json')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">{}</span>
+                                    <span class="response-format-text">JSON</span>
+                                </button>
+                                <button class="response-format-item" type="button" data-format="xml" onclick="selectBodyFormat('xml')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">&lt;/&gt;</span>
+                                    <span class="response-format-text">XML</span>
+                                </button>
+                                <button class="response-format-item" type="button" data-format="html" onclick="selectBodyFormat('html')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">&lt;/&gt;</span>
+                                    <span class="response-format-text">HTML</span>
+                                </button>
+                                <button class="response-format-item" type="button" data-format="javascript" onclick="selectBodyFormat('javascript')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">JS</span>
+                                    <span class="response-format-text">JavaScript</span>
+                                </button>
+                                <div class="response-format-divider"></div>
+                                <button class="response-format-item" type="button" data-format="raw" onclick="selectBodyFormat('raw')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">T=</span>
+                                    <span class="response-format-text">Raw</span>
+                                </button>
+                                <button class="response-format-item" type="button" data-format="hex" onclick="selectBodyFormat('hex')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">0x</span>
+                                    <span class="response-format-text">Hex</span>
+                                </button>
+                                <button class="response-format-item" type="button" data-format="base64" onclick="selectBodyFormat('base64')">
+                                    <span class="response-format-check">✓</span>
+                                    <span class="response-format-icon">64</span>
+                                    <span class="response-format-text">Base64</span>
+                                </button>
+                            </div>
+                            <select class="response-select-hidden" id="bodyFormatSelect" onchange="switchBodyFormat(this.value)">
+                                <option value="json">JSON</option>
+                                <option value="xml">XML</option>
+                                <option value="html">HTML</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="raw">Raw</option>
+                                <option value="hex">Hex</option>
+                                <option value="base64">Base64</option>
+                            </select>
+                        </div>
                         <button class="response-toolbar-btn" id="bodyPreviewBtn" onclick="toggleBodyPreview()">Preview</button>
                         <button class="response-toolbar-btn" id="bodyVisualizeBtn" onclick="toggleBodyVisualize()">Visualize</button>
                     </div>
@@ -1698,7 +2758,14 @@
                     </div>
                     <div id="responseBodyContent">
                         <div class="empty-state">
-                            <div class="empty-state-icon">📡</div>
+                            <div class="empty-state-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24">
+                                    <circle cx="12" cy="13" r="2"></circle>
+                                    <path d="M12 3v6"></path>
+                                    <path d="M8 9a6 6 0 0 0 0 8"></path>
+                                    <path d="M16 9a6 6 0 0 1 0 8"></path>
+                                </svg>
+                            </div>
                             <div>Click Send to get a response</div>
                         </div>
                     </div>
@@ -1718,7 +2785,21 @@
             </div>
             <div class="modal-body">
                 <div style="margin-bottom: 12px; font-size: 13px; color: #666;">
-                    Paste cURL command or import from file
+                    Import Postman Collection from local file
+                </div>
+                <div class="import-file-row">
+                    <button class="import-file-btn" type="button" onclick="chooseImportCollectionFile()">Choose File</button>
+                    <span class="import-file-name" id="importFileSelectedName">No file selected</span>
+                </div>
+                <input
+                    type="file"
+                    id="importFileInput"
+                    class="hidden"
+                    accept=".json,.postman_collection.json,application/json"
+                    onchange="handleImportCollectionFileChange(event)"
+                />
+                <div style="margin-bottom: 8px; font-size: 13px; color: #666;">
+                    Or paste a cURL command
                 </div>
                 <textarea class="modal-textarea" id="importTextarea" placeholder="Paste cURL command here...
 
@@ -1727,7 +2808,8 @@ curl -X GET 'https://api.example.com/users' -H 'Authorization: Bearer token'"></
             </div>
             <div class="modal-footer">
                 <button class="modal-btn secondary" onclick="closeImportModal()">Cancel</button>
-                <button class="modal-btn primary" onclick="importCurl()">Import</button>
+                <button class="modal-btn secondary" onclick="importCurl()">Import cURL</button>
+                <button class="modal-btn primary" onclick="importCollectionFile()">Import File</button>
             </div>
         </div>
     </div>

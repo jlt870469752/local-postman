@@ -22,6 +22,7 @@ let currentRequest = {
 
 let collections = [];
 let history = [];
+let historySearchQuery = '';
 let currentHistoryId = null;
 let isUpdatingUrl = false;
 let isUpdatingParams = false;
@@ -37,6 +38,26 @@ let requestTabs = [];
 let activeRequestTabId = null;
 let requestTabsSearchQuery = '';
 let isRequestTabsDropdownVisible = false;
+let isMethodPickerOpen = false;
+let isBodyFormatPickerOpen = false;
+let collectionsSearchQuery = '';
+let collapsedCollectionFolderIds = new Set();
+let activeCollectionMenuState = null;
+let draggingCollectionRequestState = null;
+let draggingCollectionRequestClearTimer = null;
+let isSendingRequest = false;
+let activeSendOperationId = null;
+let canceledSendOperationIds = new Set();
+let selectedImportCollectionFile = null;
+let activeTextPromptResolver = null;
+let activeConfirmResolver = null;
+const ENABLE_COLLECTION_DRAG_LOG = true;
+const COLLECTION_DRAG_PATCH_VERSION = 'drag-ptr-v2';
+const COLLECTION_DRAG_START_THRESHOLD = 12;
+let pendingCollectionPointerDrag = null;
+let activeCollectionPointerDrag = null;
+let pointerDragHoverInfo = null;
+let collectionPointerDragSuppressClickUntil = 0;
 
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', async () => {
@@ -84,6 +105,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         if (e.key === 'Escape') {
+            if (activeCollectionMenuState) {
+                hideCollectionItemMenu();
+                return;
+            }
+            if (isBodyFormatPickerOpen) {
+                hideBodyFormatPicker();
+                return;
+            }
+            if (isMethodPickerOpen) {
+                hideMethodPicker();
+                return;
+            }
             if (isRequestTabsDropdownVisible) {
                 hideRequestTabsDropdown(true);
                 return;
@@ -141,17 +174,566 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    window.addEventListener('resize', () => {
-        updateRequestTabsOverflowControls();
+    document.addEventListener('click', (e) => {
+        if (!isMethodPickerOpen) return;
+        const picker = document.getElementById('methodPicker');
+        if (picker && !picker.contains(e.target)) {
+            hideMethodPicker();
+        }
     });
 
+    document.addEventListener('click', (e) => {
+        if (!isBodyFormatPickerOpen) return;
+        const picker = document.getElementById('bodyFormatPicker');
+        if (picker && !picker.contains(e.target)) {
+            hideBodyFormatPicker();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!activeCollectionMenuState) return;
+        const menu = document.getElementById('collectionItemMenu');
+        const target = e.target;
+        if (menu && menu.contains(target)) return;
+        if (target && target.closest('.tree-item-action-btn')) return;
+        hideCollectionItemMenu();
+    });
+
+    window.addEventListener('resize', () => {
+        updateRequestTabsOverflowControls();
+        if (isBodyFormatPickerOpen) {
+            updateBodyFormatMenuPlacement();
+        }
+        syncWorkspaceTopbarState();
+        if (activeCollectionMenuState) {
+            hideCollectionItemMenu();
+        }
+    });
+
+    if (window.PointerEvent) {
+        document.addEventListener('pointermove', (evt) => {
+            window.handleCollectionPointerMove(evt);
+        });
+        document.addEventListener('pointerup', (evt) => {
+            void window.handleCollectionPointerUp(evt);
+        });
+        document.addEventListener('pointercancel', (evt) => {
+            void window.handleCollectionPointerUp(evt, true);
+        });
+    } else {
+        document.addEventListener('mousemove', (evt) => {
+            window.handleCollectionPointerMove(evt);
+        });
+        document.addEventListener('mouseup', (evt) => {
+            void window.handleCollectionPointerUp(evt);
+        });
+    }
+    window.addEventListener('blur', () => {
+        void window.handleCollectionPointerUp(null, true);
+    });
+
+    syncMethodPickerDisplay();
     switchResponseView('body');
     switchBodyFormat('json');
+    syncBodyFormatPickerDisplay();
+    syncWorkspaceTopbarState();
+    updateSendButtonState();
+    if (ENABLE_COLLECTION_DRAG_LOG) {
+        showToast(`Drag patch loaded: ${COLLECTION_DRAG_PATCH_VERSION}`);
+    }
 });
 
 function getEventTarget(evt) {
     return evt?.currentTarget || evt?.target || window.event?.currentTarget || window.event?.target || null;
 }
+
+function logCollectionDrag(step, data = {}) {
+    if (!ENABLE_COLLECTION_DRAG_LOG) return;
+    console.error('[collections-drag]', step, data);
+}
+
+function ensureTextPromptModal() {
+    let overlay = document.getElementById('textPromptModal');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'textPromptModal';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal" style="width: 420px; max-width: 88vw;">
+            <div class="modal-header">
+                <div class="modal-title" id="textPromptTitle">Rename</div>
+                <button class="modal-close" type="button" id="textPromptCloseBtn">×</button>
+            </div>
+            <div class="modal-body">
+                <input id="textPromptInput" class="modal-input" type="text" autocomplete="off" />
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" type="button" id="textPromptCancelBtn">Cancel</button>
+                <button class="modal-btn primary" type="button" id="textPromptConfirmBtn">Confirm</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const resolvePrompt = (value) => {
+        if (!activeTextPromptResolver) return;
+        const resolver = activeTextPromptResolver;
+        activeTextPromptResolver = null;
+        overlay.classList.remove('active');
+        resolver(value);
+    };
+
+    const input = overlay.querySelector('#textPromptInput');
+    const closeBtn = overlay.querySelector('#textPromptCloseBtn');
+    const cancelBtn = overlay.querySelector('#textPromptCancelBtn');
+    const confirmBtn = overlay.querySelector('#textPromptConfirmBtn');
+
+    overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) {
+            resolvePrompt(null);
+        }
+    });
+    closeBtn?.addEventListener('click', () => resolvePrompt(null));
+    cancelBtn?.addEventListener('click', () => resolvePrompt(null));
+    confirmBtn?.addEventListener('click', () => resolvePrompt(input?.value ?? ''));
+    input?.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Enter') {
+            evt.preventDefault();
+            resolvePrompt(input?.value ?? '');
+            return;
+        }
+        if (evt.key === 'Escape') {
+            evt.preventDefault();
+            resolvePrompt(null);
+        }
+    });
+
+    return overlay;
+}
+
+async function openTextPromptModal(title, initialValue = '') {
+    const overlay = ensureTextPromptModal();
+    const titleEl = overlay.querySelector('#textPromptTitle');
+    const input = overlay.querySelector('#textPromptInput');
+
+    if (titleEl) {
+        titleEl.textContent = title || 'Rename';
+    }
+
+    if (input) {
+        input.value = initialValue || '';
+    }
+
+    overlay.classList.add('active');
+    requestAnimationFrame(() => {
+        if (!input) return;
+        input.focus();
+        input.select();
+    });
+
+    return await new Promise((resolve) => {
+        if (activeTextPromptResolver) {
+            activeTextPromptResolver(null);
+        }
+        activeTextPromptResolver = resolve;
+    });
+}
+
+function ensureConfirmModal() {
+    let overlay = document.getElementById('confirmModal');
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.id = 'confirmModal';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal" style="width: 440px; max-width: 90vw;">
+            <div class="modal-header">
+                <div class="modal-title" id="confirmModalTitle">Confirm</div>
+                <button class="modal-close" type="button" id="confirmModalCloseBtn">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="confirmModalMessage" style="font-size: 13px; color: #333; line-height: 1.6;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn secondary" type="button" id="confirmModalCancelBtn">Cancel</button>
+                <button class="modal-btn primary" type="button" id="confirmModalConfirmBtn">Delete</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const resolveConfirm = (result) => {
+        if (!activeConfirmResolver) return;
+        const resolver = activeConfirmResolver;
+        activeConfirmResolver = null;
+        overlay.classList.remove('active');
+        resolver(!!result);
+    };
+
+    const closeBtn = overlay.querySelector('#confirmModalCloseBtn');
+    const cancelBtn = overlay.querySelector('#confirmModalCancelBtn');
+    const confirmBtn = overlay.querySelector('#confirmModalConfirmBtn');
+
+    overlay.addEventListener('click', (evt) => {
+        if (evt.target === overlay) {
+            resolveConfirm(false);
+        }
+    });
+    closeBtn?.addEventListener('click', () => resolveConfirm(false));
+    cancelBtn?.addEventListener('click', () => resolveConfirm(false));
+    confirmBtn?.addEventListener('click', () => resolveConfirm(true));
+    overlay.addEventListener('keydown', (evt) => {
+        if (!activeConfirmResolver) return;
+        if (evt.key === 'Escape') {
+            evt.preventDefault();
+            resolveConfirm(false);
+            return;
+        }
+        if (evt.key === 'Enter') {
+            evt.preventDefault();
+            resolveConfirm(true);
+        }
+    });
+
+    return overlay;
+}
+
+async function openConfirmModal(message, title = 'Confirm') {
+    const overlay = ensureConfirmModal();
+    const titleEl = overlay.querySelector('#confirmModalTitle');
+    const messageEl = overlay.querySelector('#confirmModalMessage');
+
+    if (titleEl) {
+        titleEl.textContent = title || 'Confirm';
+    }
+    if (messageEl) {
+        messageEl.textContent = message || '';
+    }
+
+    overlay.classList.add('active');
+    overlay.tabIndex = -1;
+    requestAnimationFrame(() => {
+        overlay.focus();
+    });
+
+    return await new Promise((resolve) => {
+        if (activeConfirmResolver) {
+            activeConfirmResolver(false);
+        }
+        activeConfirmResolver = resolve;
+    });
+}
+
+function syncWorkspaceTopbarState() {
+    const leftShell = document.querySelector('.left-shell');
+    const sidebar = document.getElementById('sidebar');
+    if (!leftShell || !sidebar) return;
+
+    const inlineWidth = (sidebar.style.width || '').trim();
+    const isCollapsed = sidebar.classList.contains('collapsed') || inlineWidth === '0px' || inlineWidth === '0';
+    leftShell.classList.toggle('sidebar-collapsed', isCollapsed);
+}
+
+function updateSendButtonState() {
+    const sendBtn = document.getElementById('sendBtn');
+    if (!sendBtn) return;
+
+    const hasActiveTab = !!getActiveTab();
+    sendBtn.classList.toggle('is-sending', isSendingRequest);
+    sendBtn.textContent = isSendingRequest ? 'Cancel' : 'Send';
+    sendBtn.disabled = !hasActiveTab;
+}
+
+function startSendOperation() {
+    const operationId = `send-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    activeSendOperationId = operationId;
+    isSendingRequest = true;
+    updateSendButtonState();
+    return operationId;
+}
+
+function finishSendOperation(operationId) {
+    canceledSendOperationIds.delete(operationId);
+    if (activeSendOperationId === operationId) {
+        activeSendOperationId = null;
+        isSendingRequest = false;
+        updateSendButtonState();
+    }
+}
+
+function isSendOperationCanceled(operationId) {
+    return canceledSendOperationIds.has(operationId) || activeSendOperationId !== operationId;
+}
+
+window.cancelSendRequest = function(showToastMessage = true) {
+    if (!isSendingRequest || !activeSendOperationId) return false;
+    canceledSendOperationIds.add(activeSendOperationId);
+    activeSendOperationId = null;
+    isSendingRequest = false;
+    updateSendButtonState();
+    if (showToastMessage) {
+        showToast('Request canceled');
+    }
+    return true;
+};
+
+function getUiIconSvg(name) {
+    const icons = {
+        'chevron-down': `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9l6 6 6-6"></path>
+            </svg>
+        `,
+        folder: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3.5 7h6l1.8 2H20.5v10.5H3.5z"></path>
+            </svg>
+        `,
+        clock: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="8"></circle>
+                <path d="M12 8v5l3 2"></path>
+            </svg>
+        `,
+        signal: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="13" r="2"></circle>
+                <path d="M12 3v6"></path>
+                <path d="M8 9a6 6 0 0 0 0 8"></path>
+                <path d="M16 9a6 6 0 0 1 0 8"></path>
+            </svg>
+        `,
+        warning: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4.5l8 14H4z"></path>
+                <path d="M12 10v4"></path>
+                <path d="M12 17h0"></path>
+            </svg>
+        `,
+        search: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6"></circle>
+                <path d="M16 16l4 4"></path>
+            </svg>
+        `,
+        'more-horizontal': `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="6.5" cy="12" r="1.3"></circle>
+                <circle cx="12" cy="12" r="1.3"></circle>
+                <circle cx="17.5" cy="12" r="1.3"></circle>
+            </svg>
+        `,
+        inbox: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6.5h16v11H4z"></path>
+                <path d="M4 14h4l2 2h4l2-2h4"></path>
+            </svg>
+        `,
+        cookie: `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 5.5a2 2 0 1 0 3 2.6A7.5 7.5 0 1 1 9 5.2a2 2 0 0 0 2.7-2.7A7.4 7.4 0 0 1 16 5.5z"></path>
+                <path d="M9 10h0"></path>
+                <path d="M14 13h0"></path>
+                <path d="M10.5 15.5h0"></path>
+            </svg>
+        `
+    };
+
+    return icons[name] || '';
+}
+
+const METHOD_COLOR_CLASS_MAP = {
+    GET: 'method-color-GET',
+    POST: 'method-color-POST',
+    PUT: 'method-color-PUT',
+    PATCH: 'method-color-PATCH',
+    DELETE: 'method-color-DELETE',
+    HEAD: 'method-color-HEAD',
+    OPTIONS: 'method-color-OPTIONS'
+};
+
+function normalizeMethodValue(method) {
+    const normalized = String(method || 'GET').trim().toUpperCase();
+    return normalized || 'GET';
+}
+
+function ensureMethodOption(select, method) {
+    if (!select) return;
+    const exists = Array.from(select.options).some((option) => option.value === method);
+    if (exists) return;
+
+    const option = document.createElement('option');
+    option.value = method;
+    option.textContent = method;
+    select.appendChild(option);
+}
+
+function setMethodSelectValue(method) {
+    const methodSelect = document.getElementById('methodSelect');
+    if (!methodSelect) return;
+    const normalized = normalizeMethodValue(method);
+    ensureMethodOption(methodSelect, normalized);
+    methodSelect.value = normalized;
+}
+
+function getMethodColorClass(method) {
+    return METHOD_COLOR_CLASS_MAP[normalizeMethodValue(method)] || METHOD_COLOR_CLASS_MAP.GET;
+}
+
+function applyMethodColorClass(element, method) {
+    if (!element) return;
+    Object.values(METHOD_COLOR_CLASS_MAP).forEach((className) => element.classList.remove(className));
+    element.classList.add(getMethodColorClass(method));
+}
+
+function updateMethodPickerVisibility() {
+    const picker = document.getElementById('methodPicker');
+    const menu = document.getElementById('methodPickerMenu');
+    if (!picker || !menu) return;
+
+    picker.classList.toggle('open', isMethodPickerOpen);
+    menu.classList.toggle('hidden', !isMethodPickerOpen);
+}
+
+function hideMethodPicker() {
+    if (!isMethodPickerOpen) return;
+    isMethodPickerOpen = false;
+    updateMethodPickerVisibility();
+}
+
+function syncMethodPickerDisplay() {
+    const methodSelect = document.getElementById('methodSelect');
+    const pickerValue = document.getElementById('methodPickerValue');
+    const pickerItems = document.querySelectorAll('.method-picker-item[data-method]');
+    if (!methodSelect || !pickerValue) return;
+
+    const normalized = normalizeMethodValue(methodSelect.value || 'GET');
+    ensureMethodOption(methodSelect, normalized);
+    methodSelect.value = normalized;
+
+    pickerValue.textContent = normalized;
+    applyMethodColorClass(pickerValue, normalized);
+    pickerItems.forEach((item) => {
+        const itemMethod = normalizeMethodValue(item.dataset.method || '');
+        item.classList.toggle('active', itemMethod === normalized);
+    });
+}
+
+window.toggleMethodPicker = function(evt) {
+    if (evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+    }
+
+    isMethodPickerOpen = !isMethodPickerOpen;
+    updateMethodPickerVisibility();
+};
+
+window.selectMethod = function(method) {
+    const methodSelect = document.getElementById('methodSelect');
+    if (!methodSelect) return;
+
+    const normalized = normalizeMethodValue(method);
+    ensureMethodOption(methodSelect, normalized);
+    methodSelect.value = normalized;
+    syncMethodPickerDisplay();
+    methodSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    hideMethodPicker();
+};
+
+const BODY_FORMAT_META = {
+    json: { label: 'JSON', icon: '{}' },
+    xml: { label: 'XML', icon: '</>' },
+    html: { label: 'HTML', icon: '</>' },
+    javascript: { label: 'JavaScript', icon: 'JS' },
+    raw: { label: 'Raw', icon: 'T=' },
+    hex: { label: 'Hex', icon: '0x' },
+    base64: { label: 'Base64', icon: '64' }
+};
+
+function normalizeBodyFormatValue(format) {
+    const normalized = String(format || 'json').trim().toLowerCase();
+    return BODY_FORMAT_META[normalized] ? normalized : 'json';
+}
+
+function updateBodyFormatPickerVisibility() {
+    const picker = document.getElementById('bodyFormatPicker');
+    const menu = document.getElementById('bodyFormatMenu');
+    if (!picker || !menu) return;
+
+    picker.classList.toggle('open', isBodyFormatPickerOpen);
+    menu.classList.toggle('hidden', !isBodyFormatPickerOpen);
+    if (!isBodyFormatPickerOpen) {
+        picker.classList.remove('open-up');
+        return;
+    }
+
+    requestAnimationFrame(() => {
+        updateBodyFormatMenuPlacement();
+    });
+}
+
+function updateBodyFormatMenuPlacement() {
+    const picker = document.getElementById('bodyFormatPicker');
+    const menu = document.getElementById('bodyFormatMenu');
+    if (!picker || !menu || menu.classList.contains('hidden')) return;
+
+    picker.classList.remove('open-up');
+
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const pickerRect = picker.getBoundingClientRect();
+    const menuHeight = menu.offsetHeight;
+    const safetyGap = 8;
+    const spaceBelow = viewportHeight - pickerRect.bottom - safetyGap;
+    const spaceAbove = pickerRect.top - safetyGap;
+    const shouldOpenUp = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+    picker.classList.toggle('open-up', shouldOpenUp);
+}
+
+function hideBodyFormatPicker() {
+    if (!isBodyFormatPickerOpen) return;
+    isBodyFormatPickerOpen = false;
+    updateBodyFormatPickerVisibility();
+}
+
+function syncBodyFormatPickerDisplay() {
+    const select = document.getElementById('bodyFormatSelect');
+    const labelEl = document.getElementById('bodyFormatPickerLabel');
+    const iconEl = document.getElementById('bodyFormatPickerIcon');
+    const items = document.querySelectorAll('.response-format-item[data-format]');
+    if (!select || !labelEl || !iconEl) return;
+
+    const format = normalizeBodyFormatValue(select.value);
+    select.value = format;
+    const meta = BODY_FORMAT_META[format];
+
+    labelEl.textContent = meta.label;
+    iconEl.textContent = meta.icon;
+
+    items.forEach((item) => {
+        const itemFormat = normalizeBodyFormatValue(item.dataset.format || '');
+        item.classList.toggle('active', itemFormat === format);
+    });
+}
+
+window.toggleBodyFormatPicker = function(evt) {
+    if (evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+    }
+
+    isBodyFormatPickerOpen = !isBodyFormatPickerOpen;
+    updateBodyFormatPickerVisibility();
+};
+
+window.selectBodyFormat = function(format) {
+    const normalized = normalizeBodyFormatValue(format);
+    switchBodyFormat(normalized);
+    hideBodyFormatPicker();
+};
 
 function normalizeRequest(raw = {}) {
     const resolvedUrl = raw.url || '';
@@ -237,6 +819,7 @@ function openRequestFromSource(sourceType, sourceId, requestPayload) {
     const normalizedSourceId = String(sourceId);
     const existing = findExistingTabForRequest(sourceType, normalizedSourceId, requestPayload);
     if (existing) {
+        ensureTabResponseState(existing);
         existing.sourceType = sourceType;
         existing.sourceId = normalizedSourceId;
         activateTabById(existing.id);
@@ -245,6 +828,7 @@ function openRequestFromSource(sourceType, sourceId, requestPayload) {
 
     syncCurrentRequestFromUI();
     const newTab = createNewTabState();
+    ensureTabResponseState(newTab);
     Object.assign(newTab, normalizeRequest({
         ...requestPayload,
         id: newTab.id,
@@ -261,15 +845,147 @@ function openRequestFromSource(sourceType, sourceId, requestPayload) {
 }
 
 function createNewTabState() {
-    return normalizeRequest({
+    const tab = normalizeRequest({
         id: Date.now().toString(),
         method: document.getElementById('methodSelect')?.value || 'GET'
     });
+    tab.responseData = null;
+    tab.responseBodyFormat = 'json';
+    tab.responseError = false;
+    return tab;
+}
+
+function cloneResponseData(data) {
+    if (!data || typeof data !== 'object') return null;
+    try {
+        return JSON.parse(JSON.stringify(data));
+    } catch {
+        return null;
+    }
+}
+
+function ensureTabResponseState(tab) {
+    if (!tab || typeof tab !== 'object') return;
+    if (!Object.prototype.hasOwnProperty.call(tab, 'responseData')) {
+        tab.responseData = null;
+    }
+    if (!Object.prototype.hasOwnProperty.call(tab, 'responseBodyFormat')) {
+        tab.responseBodyFormat = 'json';
+    }
+    if (!Object.prototype.hasOwnProperty.call(tab, 'responseError')) {
+        tab.responseError = false;
+    }
+}
+
+function setTabResponseState(tab, responseData, options = {}) {
+    if (!tab) return;
+    ensureTabResponseState(tab);
+    const normalizedData = cloneResponseData(responseData);
+    tab.responseData = normalizedData;
+    tab.responseBodyFormat = normalizeBodyFormatValue(
+        options.bodyFormat || tab.responseBodyFormat || 'json'
+    );
+    tab.responseError = !!options.isError;
+}
+
+function clearTabResponseState(tab) {
+    if (!tab) return;
+    ensureTabResponseState(tab);
+    tab.responseData = null;
+    tab.responseBodyFormat = 'json';
+    tab.responseError = false;
+}
+
+function applyResponseStatusMeta(data, isError = false) {
+    const statusCodeEl = document.getElementById('statusCode');
+    const timeEl = document.getElementById('responseTime');
+    const sizeEl = document.getElementById('responseSize');
+
+    if (!data) {
+        statusCodeEl.textContent = '--';
+        statusCodeEl.className = 'status-code';
+        timeEl.textContent = '-- ms';
+        sizeEl.textContent = '-- B';
+        return;
+    }
+
+    if (isError) {
+        statusCodeEl.textContent = 'Error';
+        statusCodeEl.className = 'status-code status-error';
+        timeEl.textContent = '-- ms';
+        sizeEl.textContent = '-- B';
+        return;
+    }
+
+    const status = Number(data.status);
+    const duration = Number(data.duration);
+    const size = Number(data.size);
+    if (Number.isFinite(status)) {
+        statusCodeEl.textContent = `${status} ${data.status_text || ''}`.trim();
+        statusCodeEl.className = 'status-code ' +
+            (status < 300 ? 'status-success' :
+             status < 500 ? 'status-warning' : 'status-error');
+    } else {
+        statusCodeEl.textContent = 'Response';
+        statusCodeEl.className = 'status-code';
+    }
+    timeEl.textContent = Number.isFinite(duration) ? `${duration} ms` : '-- ms';
+    sizeEl.textContent = Number.isFinite(size) ? formatSize(size) : '-- B';
+}
+
+function applyActiveTabResponseToUI() {
+    const tab = getActiveTab();
+    if (!tab) {
+        latestResponseData = null;
+        currentBodyFormat = 'json';
+        isBodyPreview = false;
+        isBodyVisualize = false;
+        const bodyFormatSelect = document.getElementById('bodyFormatSelect');
+        if (bodyFormatSelect) {
+            bodyFormatSelect.value = 'json';
+        }
+        syncBodyFormatPickerDisplay();
+        applyResponseStatusMeta(null, false);
+        renderResponseHeaders({});
+        renderResponseCookies({});
+        updatePreviewButtonState();
+        updateVisualizeButtonState();
+        updateResponsePanels();
+        if (currentResponseView === 'body') {
+            renderResponseBody();
+        }
+        return;
+    }
+    ensureTabResponseState(tab);
+
+    latestResponseData = tab.responseData ? cloneResponseData(tab.responseData) : null;
+    currentBodyFormat = normalizeBodyFormatValue(
+        tab.responseBodyFormat || (latestResponseData ? inferResponseBodyFormat(latestResponseData) : 'json')
+    );
+    isBodyPreview = false;
+    isBodyVisualize = false;
+
+    const bodyFormatSelect = document.getElementById('bodyFormatSelect');
+    if (bodyFormatSelect) {
+        bodyFormatSelect.value = currentBodyFormat;
+    }
+    syncBodyFormatPickerDisplay();
+
+    applyResponseStatusMeta(latestResponseData, !!tab.responseError);
+    renderResponseHeaders(latestResponseData?.headers || {});
+    renderResponseCookies(latestResponseData?.headers || {});
+    updatePreviewButtonState();
+    updateVisualizeButtonState();
+    updateResponsePanels();
+    if (currentResponseView === 'body') {
+        renderResponseBody();
+    }
 }
 
 function initRequestTabs() {
     if (requestTabs.length > 0) return;
     const initial = createNewTabState();
+    ensureTabResponseState(initial);
     requestTabs = [initial];
     activeRequestTabId = initial.id;
     currentRequest = initial;
@@ -279,6 +995,57 @@ function initRequestTabs() {
 
 function getActiveTab() {
     return requestTabs.find(tab => tab.id === activeRequestTabId) || null;
+}
+
+function findRequestTabById(tabId) {
+    return requestTabs.find((tab) => tab.id === tabId) || null;
+}
+
+function updateRequestWorkspaceState() {
+    const hasActiveTab = !!getActiveTab();
+    const toolbar = document.getElementById('requestToolbar');
+    const requestBuilder = document.getElementById('requestBuilder');
+    const panelResizer = document.getElementById('panelResizer');
+    const responsePanel = document.getElementById('responsePanel');
+    const emptyState = document.getElementById('requestWorkspaceEmpty');
+    const saveBtn = document.getElementById('saveBtn');
+    const tabsMenuToggle = document.getElementById('requestTabMenuToggle');
+
+    if (toolbar) {
+        toolbar.classList.toggle('hidden', !hasActiveTab);
+    }
+    if (requestBuilder) {
+        requestBuilder.classList.toggle('hidden', !hasActiveTab);
+    }
+    if (panelResizer) {
+        panelResizer.classList.toggle('hidden', !hasActiveTab);
+    }
+    if (responsePanel) {
+        responsePanel.classList.toggle('hidden', !hasActiveTab);
+    }
+    if (emptyState) {
+        emptyState.classList.toggle('hidden', hasActiveTab);
+    }
+    if (saveBtn) {
+        saveBtn.disabled = !hasActiveTab;
+    }
+    if (tabsMenuToggle) {
+        const hasTabs = requestTabs.length > 0;
+        tabsMenuToggle.disabled = !hasTabs;
+        if (!hasTabs) {
+            hideRequestTabsDropdown(true);
+        }
+    }
+
+    if (!hasActiveTab) {
+        currentRequest = null;
+        hideBodySearch(true);
+        applyActiveTabResponseToUI();
+    } else if (!currentRequest) {
+        currentRequest = getActiveTab();
+    }
+
+    updateSendButtonState();
 }
 
 function updateRequestTabsOverflowControls() {
@@ -411,6 +1178,11 @@ window.toggleRequestTabsDropdown = function(evt) {
         evt.stopPropagation();
     }
 
+    if (requestTabs.length === 0) {
+        hideRequestTabsDropdown(true);
+        return;
+    }
+
     isRequestTabsDropdownVisible = !isRequestTabsDropdownVisible;
     if (!isRequestTabsDropdownVisible) {
         updateRequestTabsDropdownVisibility();
@@ -458,6 +1230,7 @@ function renderRequestTabs() {
     });
 
     renderRequestTabsDropdown();
+    updateRequestWorkspaceState();
     requestAnimationFrame(() => {
         ensureActiveTabVisible();
         updateRequestTabsOverflowControls();
@@ -467,6 +1240,7 @@ function renderRequestTabs() {
 window.createNewRequestTab = function() {
     syncCurrentRequestFromUI();
     const tab = createNewTabState();
+    ensureTabResponseState(tab);
     requestTabs.push(tab);
     activeRequestTabId = tab.id;
     currentRequest = tab;
@@ -488,10 +1262,12 @@ window.closeRequestTab = function(tabId, evt) {
     requestTabs.splice(index, 1);
 
     if (requestTabs.length === 0) {
-        const newTab = createNewTabState();
-        requestTabs = [newTab];
-        activeRequestTabId = newTab.id;
-        currentRequest = newTab;
+        if (removingActive && isSendingRequest) {
+            window.cancelSendRequest(false);
+        }
+        requestTabs = [];
+        activeRequestTabId = null;
+        currentRequest = null;
         renderRequestTabs();
         applyCurrentRequestToUI();
         return;
@@ -561,12 +1337,17 @@ function syncCurrentRequestFromUI() {
 
 function applyCurrentRequestToUI() {
     const tab = getActiveTab();
-    if (!tab) return;
+    if (!tab) {
+        updateRequestWorkspaceState();
+        return;
+    }
+    ensureTabResponseState(tab);
 
     currentRequest = normalizeRequest(tab);
     Object.assign(tab, currentRequest);
 
-    document.getElementById('methodSelect').value = currentRequest.method;
+    setMethodSelectValue(currentRequest.method);
+    syncMethodPickerDisplay();
     document.getElementById('urlInput').value = currentRequest.url;
     document.getElementById('requestNameInput').value = currentRequest.name || currentRequest.url || '';
     const rawFormatSelect = document.getElementById('rawFormatSelect');
@@ -594,6 +1375,8 @@ function applyCurrentRequestToUI() {
     switchRequestBodyType(currentRequest.bodyType || 'none');
     updateBadges();
     renderRequestTabs();
+    updateRequestWorkspaceState();
+    applyActiveTabResponseToUI();
 }
 
 function attachRequestMetaListeners() {
@@ -603,6 +1386,7 @@ function attachRequestMetaListeners() {
     const rawFormatSelect = document.getElementById('rawFormatSelect');
 
     methodSelect.addEventListener('change', () => {
+        syncMethodPickerDisplay();
         syncCurrentRequestFromUI();
         renderRequestTabs();
     });
@@ -754,7 +1538,12 @@ function syncParamsToUrl() {
 }
 
 // ==================== 侧边栏切换 ====================
+window.openSidebarFeature = function(name) {
+    showToast(`${name} is coming soon`);
+};
+
 window.switchSidebar = function(tab, evt) {
+    hideCollectionItemMenu();
     document.querySelectorAll('.icon-sidebar .icon-item').forEach(t => t.classList.remove('active'));
     const target = getEventTarget(evt);
     if (target) {
@@ -771,22 +1560,25 @@ window.switchSidebar = function(tab, evt) {
     document.getElementById('historyPanel').classList.add('hidden');
     
     document.getElementById(tab + 'Panel').classList.remove('hidden');
+    syncWorkspaceTopbarState();
+    requestAnimationFrame(syncWorkspaceTopbarState);
 };
 
 // ==================== Collections 管理 ====================
 async function loadCollections() {
     try {
         const data = await invoke('get_collections');
-        collections = data || [];
+        collections = normalizeCollectionsState(data || []);
         renderCollections();
     } catch (error) {
         console.error('Load collections error:', error);
         // 使用默认数据
-        collections = [
+        collections = normalizeCollectionsState([
             {
                 id: '1',
                 name: 'chat',
                 type: 'folder',
+                parent_id: null,
                 children: [
                     { id: '1-1', name: '获取消息列表', method: 'GET', url: '/api/chat/messages' },
                     { id: '1-2', name: '发送消息', method: 'POST', url: '/api/chat/send' }
@@ -796,66 +1588,126 @@ async function loadCollections() {
                 id: '2',
                 name: 'common',
                 type: 'folder',
+                parent_id: null,
                 children: [
                     { id: '2-1', name: '获取配置', method: 'GET', url: '/api/config' }
                 ]
             }
-        ];
+        ]);
         renderCollections();
     }
 }
 
-function renderCollections() {
-    const panel = document.getElementById('collectionsContent');
-    panel.innerHTML = '';
-    
-    collections.forEach(folder => {
-        const folderEl = document.createElement('div');
-        folderEl.innerHTML = `
-            <div class="tree-item tree-folder" onclick="toggleFolder(this)">
-                <span class="icon">▼</span>
-                <span>📁 ${folder.name}</span>
-            </div>
-            <div class="tree-children">
-                ${folder.children.map(child => `
-                    <div class="tree-item" onclick="selectCollectionRequest('${child.id}')">
-                        <span class="method-badge method-${child.method}">${child.method}</span>
-                        <span>${child.name}</span>
-                    </div>
-                `).join('')}
-            </div>
-        `;
-        panel.appendChild(folderEl);
+function normalizeCollectionRequestRecord(request) {
+    const fallbackId = request?.id != null ? String(request.id) : generateCollectionEntityId('req');
+    const payload = getCollectionRequestPayload({
+        ...request,
+        id: fallbackId
     });
+    const method = normalizeMethodValue(payload.method || request?.method || 'GET');
+    const url = payload.url || request?.url || '';
+    const name = (request?.name ?? payload.name ?? '').toString();
+    const normalizedPayload = {
+        ...payload,
+        id: fallbackId,
+        name,
+        method,
+        url
+    };
+
+    return {
+        id: fallbackId,
+        name,
+        method,
+        url,
+        request_data: JSON.stringify(normalizedPayload)
+    };
 }
 
-window.toggleFolder = function(element) {
-    const icon = element.querySelector('.icon');
-    const children = element.nextElementSibling;
-    
-    if (children && children.classList.contains('tree-children')) {
-        if (children.style.display === 'none') {
-            children.style.display = 'block';
-            icon.textContent = '▼';
-        } else {
-            children.style.display = 'none';
-            icon.textContent = '▶';
+function getCollectionFolderParentId(folder) {
+    const raw = folder?.parent_id ?? folder?.parentId ?? null;
+    if (raw == null) return null;
+    const normalized = String(raw).trim();
+    return normalized ? normalized : null;
+}
+
+function normalizeCollectionFolderRecord(folder) {
+    const resolvedId = folder?.id != null ? String(folder.id) : generateCollectionEntityId('folder');
+    const parentId = getCollectionFolderParentId(folder);
+    const normalized = {
+        ...folder,
+        id: resolvedId,
+        name: (folder?.name || '').toString(),
+        parent_id: parentId,
+        children: Array.isArray(folder?.children) ? folder.children : []
+    };
+    if ('parentId' in normalized) {
+        delete normalized.parentId;
+    }
+    return normalized;
+}
+
+function normalizeCollectionsState(rawCollections = []) {
+    return (Array.isArray(rawCollections) ? rawCollections : []).map((folder) => normalizeCollectionFolderRecord(folder));
+}
+
+function serializeCollectionsForPersist() {
+    return collections.map((folder) => ({
+        id: folder?.id != null ? String(folder.id) : generateCollectionEntityId('folder'),
+        name: (folder?.name || '').toString(),
+        parent_id: getCollectionFolderParentId(folder),
+        children: Array.isArray(folder?.children)
+            ? folder.children.map((request) => normalizeCollectionRequestRecord(request))
+            : []
+    }));
+}
+
+async function persistCollectionsState(actionLabel = 'save collections') {
+    try {
+        const payload = serializeCollectionsForPersist();
+        const saved = await invoke('replace_collections', { collections: payload });
+        collections = normalizeCollectionsState(Array.isArray(saved) ? saved : payload);
+        renderCollections();
+        return true;
+    } catch (error) {
+        console.error(`Persist collections failed while trying to ${actionLabel}:`, error);
+        const reason = error?.message || String(error || '');
+        showToast(reason ? `Failed to ${actionLabel}: ${reason}` : `Failed to ${actionLabel}`, 'error');
+        await loadCollections();
+        return false;
+    }
+}
+
+function generateCollectionEntityId(prefix = 'id') {
+    return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function findCollectionFolderById(folderId) {
+    const folderIdStr = String(folderId);
+    return collections.find((folder) => String(folder?.id) === folderIdStr) || null;
+}
+
+function findCollectionRequestLocation(requestId) {
+    const requestIdStr = String(requestId);
+    for (let i = 0; i < collections.length; i += 1) {
+        const folder = collections[i];
+        const children = Array.isArray(folder?.children) ? folder.children : [];
+        const requestIndex = children.findIndex((child) => String(child?.id) === requestIdStr);
+        if (requestIndex > -1) {
+            return {
+                folder,
+                folderIndex: i,
+                request: children[requestIndex],
+                requestIndex
+            };
         }
     }
-};
+    return null;
+}
 
-window.selectCollectionRequest = function(id) {
-    // 查找请求
-    let request = null;
-    collections.forEach(folder => {
-        const found = folder.children.find(c => c.id === id);
-        if (found) request = found;
-    });
-    
-    if (!request) return;
-
+function getCollectionRequestPayload(request) {
     let requestData = {};
-    if (request.request_data) {
+    if (request?.request_data) {
         try {
             requestData = JSON.parse(request.request_data);
         } catch {
@@ -863,11 +1715,11 @@ window.selectCollectionRequest = function(id) {
         }
     }
 
-    const payload = normalizeRequest({
+    return normalizeRequest({
         ...requestData,
-        name: request.name || requestData.name || '',
-        method: request.method || requestData.method || 'GET',
-        url: request.url || requestData.url || '',
+        name: request?.name || requestData.name || '',
+        method: request?.method || requestData.method || 'GET',
+        url: request?.url || requestData.url || '',
         queryParams: requestData.queryParams || [],
         headers: requestData.headers || [],
         body: requestData.body || '',
@@ -878,7 +1730,1235 @@ window.selectCollectionRequest = function(id) {
         graphqlQuery: requestData.graphqlQuery || '',
         graphqlVariables: requestData.graphqlVariables || '{}'
     });
+}
 
+function clearCollectionMenuRowState() {
+    document.querySelectorAll('.tree-item.menu-open').forEach((item) => {
+        item.classList.remove('menu-open');
+    });
+}
+
+function ensureCollectionItemMenu() {
+    let menu = document.getElementById('collectionItemMenu');
+    if (menu) return menu;
+
+    menu = document.createElement('div');
+    menu.id = 'collectionItemMenu';
+    menu.className = 'collection-item-menu hidden';
+    document.body.appendChild(menu);
+    return menu;
+}
+
+function hideCollectionItemMenu() {
+    clearCollectionMenuRowState();
+    activeCollectionMenuState = null;
+    const menu = document.getElementById('collectionItemMenu');
+    if (menu) {
+        menu.classList.add('hidden');
+        menu.innerHTML = '';
+    }
+}
+
+function positionCollectionItemMenu(anchor, menu) {
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    menu.classList.remove('hidden');
+    const menuRect = menu.getBoundingClientRect();
+
+    const spacing = 6;
+    let left = rect.right - menuRect.width;
+    let top = rect.bottom + spacing;
+    if (left < spacing) left = spacing;
+    if (left + menuRect.width > window.innerWidth - spacing) {
+        left = window.innerWidth - menuRect.width - spacing;
+    }
+    if (top + menuRect.height > window.innerHeight - spacing) {
+        top = rect.top - menuRect.height - spacing;
+    }
+    if (top < spacing) top = spacing;
+
+    menu.style.left = `${Math.round(left)}px`;
+    menu.style.top = `${Math.round(top)}px`;
+}
+
+function getCollectionMenuItems(state) {
+    if (state.type === 'folder') {
+        return [
+            { action: 'folder_add_request', label: 'Add Request' },
+            { action: 'folder_add_folder', label: 'Add Folder' },
+            { action: 'folder_rename', label: 'Rename' },
+            { action: 'folder_delete', label: 'Delete', danger: true }
+        ];
+    }
+
+    return [
+        { action: 'request_rename', label: 'Rename' },
+        { action: 'request_duplicate', label: 'Duplicate' },
+        { action: 'request_delete', label: 'Delete', danger: true }
+    ];
+}
+
+function renderCollectionItemMenu() {
+    if (!activeCollectionMenuState) {
+        hideCollectionItemMenu();
+        return;
+    }
+
+    const anchor = activeCollectionMenuState.anchor;
+    if (!anchor || !document.body.contains(anchor)) {
+        hideCollectionItemMenu();
+        return;
+    }
+
+    clearCollectionMenuRowState();
+    activeCollectionMenuState.row?.classList.add('menu-open');
+
+    const menu = ensureCollectionItemMenu();
+    menu.innerHTML = '';
+
+    const list = document.createElement('div');
+    list.className = 'collection-item-menu-list';
+    const menuStateSnapshot = activeCollectionMenuState
+        ? {
+            type: activeCollectionMenuState.type,
+            folderId: activeCollectionMenuState.folderId,
+            requestId: activeCollectionMenuState.requestId
+        }
+        : null;
+    getCollectionMenuItems(activeCollectionMenuState).forEach((item) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `collection-item-menu-btn ${item.danger ? 'danger' : ''}`;
+        btn.textContent = item.label;
+        btn.addEventListener('click', async (evt) => {
+            evt.preventDefault();
+            evt.stopPropagation();
+            await handleCollectionMenuAction(item.action, menuStateSnapshot);
+        });
+        list.appendChild(btn);
+    });
+    menu.appendChild(list);
+
+    positionCollectionItemMenu(anchor, menu);
+}
+
+window.toggleCollectionItemMenu = function(type, folderId, requestId = '', evt) {
+    if (evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+    }
+
+    const anchor = getEventTarget(evt);
+    if (!anchor) return;
+
+    const folderIdStr = String(folderId || '');
+    const requestIdStr = requestId != null ? String(requestId) : '';
+    const key = `${type}:${folderIdStr}:${requestIdStr}`;
+
+    if (activeCollectionMenuState?.key === key) {
+        hideCollectionItemMenu();
+        return;
+    }
+
+    activeCollectionMenuState = {
+        key,
+        type,
+        folderId: folderIdStr,
+        requestId: requestIdStr,
+        anchor,
+        row: anchor.closest('.tree-item')
+    };
+    renderCollectionItemMenu();
+};
+
+function generateDuplicatedRequestName(baseName, siblings = []) {
+    const sourceName = (baseName || 'Untitled request').trim() || 'Untitled request';
+    const seed = `${sourceName} Copy`;
+    const existing = new Set(
+        siblings.map((item) => String(item?.name || item?.url || '').trim().toLowerCase()).filter(Boolean)
+    );
+    if (!existing.has(seed.toLowerCase())) return seed;
+
+    let index = 2;
+    while (existing.has(`${seed} ${index}`.toLowerCase())) {
+        index += 1;
+    }
+    return `${seed} ${index}`;
+}
+
+async function addRequestToFolder(folderId) {
+    const folder = findCollectionFolderById(folderId);
+    if (!folder) return;
+
+    const requestId = generateCollectionEntityId('req');
+    const payload = normalizeRequest({
+        id: requestId,
+        name: '',
+        method: 'GET',
+        url: '',
+        queryParams: [],
+        headers: [],
+        body: '',
+        bodyType: 'none',
+        rawFormat: 'json',
+        bodyFields: [],
+        binaryBody: '',
+        graphqlQuery: '',
+        graphqlVariables: '{}',
+        isCustomName: false
+    });
+
+    const record = {
+        id: requestId,
+        name: '',
+        method: payload.method,
+        url: payload.url,
+        request_data: JSON.stringify(payload)
+    };
+
+    if (!Array.isArray(folder.children)) folder.children = [];
+    folder.children.push(record);
+    collapsedCollectionFolderIds.delete(String(folderId));
+    renderCollections();
+    openRequestFromSource('collection', requestId, payload);
+    if (await persistCollectionsState('add request')) {
+        showToast('Request added');
+    }
+}
+
+async function renameCollectionFolder(folderId) {
+    const folder = findCollectionFolderById(folderId);
+    if (!folder) return;
+
+    const prompted = await openTextPromptModal('Rename folder', folder.name || '');
+    if (prompted == null) return;
+    const nextName = prompted.trim();
+    if (!nextName) return;
+    folder.name = nextName;
+    renderCollections();
+    if (await persistCollectionsState('rename folder')) {
+        showToast('Folder renamed');
+    }
+}
+
+async function deleteCollectionFolder(folderId) {
+    const targetId = String(folderId);
+    const folder = findCollectionFolderById(targetId);
+    if (!folder) return;
+    const folderName = folder?.name || 'this folder';
+    const confirmed = await openConfirmModal(`Delete "${folderName}" and all requests inside it?`, 'Delete Folder');
+    if (!confirmed) return;
+
+    const removedFolderIds = new Set([targetId]);
+    let changed = true;
+    while (changed) {
+        changed = false;
+        collections.forEach((item) => {
+            const id = String(item?.id || '');
+            const parentId = getCollectionFolderParentId(item);
+            if (!id || !parentId) return;
+            if (removedFolderIds.has(parentId) && !removedFolderIds.has(id)) {
+                removedFolderIds.add(id);
+                changed = true;
+            }
+        });
+    }
+
+    const removedRequestIds = new Set();
+    collections.forEach((item) => {
+        const id = String(item?.id || '');
+        if (!removedFolderIds.has(id)) return;
+        const children = Array.isArray(item?.children) ? item.children : [];
+        children.forEach((request) => {
+            if (request?.id != null) {
+                removedRequestIds.add(String(request.id));
+            }
+        });
+    });
+
+    collections = collections.filter((item) => !removedFolderIds.has(String(item?.id || '')));
+    removedFolderIds.forEach((id) => collapsedCollectionFolderIds.delete(id));
+
+    if (removedRequestIds.size > 0) {
+        requestTabs.forEach((tab) => {
+            if (tab.sourceType === 'collection' && removedRequestIds.has(String(tab.sourceId))) {
+                tab.sourceType = '';
+                tab.sourceId = '';
+            }
+        });
+        renderRequestTabs();
+    }
+
+    renderCollections();
+    if (await persistCollectionsState('delete folder')) {
+        showToast('Folder deleted');
+    }
+}
+
+async function renameCollectionRequest(requestId) {
+    const location = findCollectionRequestLocation(requestId);
+    if (!location) return;
+
+    const currentLabel = location.request.name || location.request.url || 'Untitled request';
+    const prompted = await openTextPromptModal('Rename request', currentLabel);
+    if (prompted == null) return;
+    const nextName = prompted.trim();
+    if (!nextName) return;
+
+    const payload = getCollectionRequestPayload(location.request);
+    payload.name = nextName;
+    payload.isCustomName = true;
+    location.request.name = nextName;
+    location.request.request_data = JSON.stringify(payload);
+
+    requestTabs.forEach((tab) => {
+        if (tab.sourceType === 'collection' && String(tab.sourceId) === String(requestId) && !tab.isCustomName) {
+            tab.name = nextName;
+        }
+    });
+
+    renderCollections();
+    renderRequestTabs();
+    if (await persistCollectionsState('rename request')) {
+        showToast('Request renamed');
+    }
+}
+
+async function deleteCollectionRequest(requestId) {
+    const location = findCollectionRequestLocation(requestId);
+    if (!location) return;
+
+    const requestName = location.request.name || location.request.url || 'this request';
+    const confirmed = await openConfirmModal(`Delete "${requestName}"?`, 'Delete Request');
+    if (!confirmed) return;
+
+    location.folder.children.splice(location.requestIndex, 1);
+    requestTabs.forEach((tab) => {
+        if (tab.sourceType === 'collection' && String(tab.sourceId) === String(requestId)) {
+            tab.sourceType = '';
+            tab.sourceId = '';
+        }
+    });
+
+    renderCollections();
+    renderRequestTabs();
+    if (await persistCollectionsState('delete request')) {
+        showToast('Request deleted');
+    }
+}
+
+async function duplicateCollectionRequest(requestId) {
+    const location = findCollectionRequestLocation(requestId);
+    if (!location) return;
+
+    const payload = getCollectionRequestPayload(location.request);
+    const duplicatedName = generateDuplicatedRequestName(
+        payload.name || payload.url || location.request.name || location.request.url || 'Untitled request',
+        location.folder.children
+    );
+    const nextId = generateCollectionEntityId('req');
+
+    const duplicatedPayload = normalizeRequest({
+        ...payload,
+        id: nextId,
+        name: duplicatedName,
+        isCustomName: true,
+        sourceType: '',
+        sourceId: ''
+    });
+
+    const duplicatedRequest = {
+        id: nextId,
+        name: duplicatedName,
+        method: duplicatedPayload.method || 'GET',
+        url: duplicatedPayload.url || '',
+        request_data: JSON.stringify(duplicatedPayload)
+    };
+
+    location.folder.children.splice(location.requestIndex + 1, 0, duplicatedRequest);
+    collapsedCollectionFolderIds.delete(String(location.folder.id));
+    renderCollections();
+    if (await persistCollectionsState('duplicate request')) {
+        showToast('Request duplicated');
+    }
+}
+
+async function handleCollectionMenuAction(action, state) {
+    if (!state) return;
+    hideCollectionItemMenu();
+
+    switch (action) {
+        case 'folder_add_request':
+            await addRequestToFolder(state.folderId);
+            break;
+        case 'folder_add_folder':
+            await window.createCollectionFolder(state.folderId);
+            break;
+        case 'folder_rename':
+            await renameCollectionFolder(state.folderId);
+            break;
+        case 'folder_delete':
+            await deleteCollectionFolder(state.folderId);
+            break;
+        case 'request_rename':
+            await renameCollectionRequest(state.requestId);
+            break;
+        case 'request_duplicate':
+            await duplicateCollectionRequest(state.requestId);
+            break;
+        case 'request_delete':
+            await deleteCollectionRequest(state.requestId);
+            break;
+        default:
+            break;
+    }
+}
+
+function clearCollectionDropTargets() {
+    document.querySelectorAll('.drop-target').forEach((node) => {
+        node.classList.remove('drop-target');
+    });
+    document.querySelectorAll('.drop-target-before').forEach((node) => {
+        node.classList.remove('drop-target-before');
+    });
+    document.querySelectorAll('.drop-target-after').forEach((node) => {
+        node.classList.remove('drop-target-after');
+    });
+}
+
+function findCollectionDropElementByFolderId(folderId) {
+    if (!folderId) return null;
+    const all = document.querySelectorAll('.tree-folder[data-folder-id], .tree-children[data-folder-id]');
+    for (let i = 0; i < all.length; i += 1) {
+        if (String(all[i]?.dataset?.folderId || '') === String(folderId)) {
+            return all[i];
+        }
+    }
+    return null;
+}
+
+function findCollectionRequestElementById(requestId) {
+    if (!requestId) return null;
+    const all = document.querySelectorAll('.tree-request[data-request-id]');
+    for (let i = 0; i < all.length; i += 1) {
+        if (String(all[i]?.dataset?.requestId || '') === String(requestId)) {
+            return all[i];
+        }
+    }
+    return null;
+}
+
+function getCollectionDropInfoFromPoint(clientX, clientY) {
+    const stack = typeof document.elementsFromPoint === 'function'
+        ? document.elementsFromPoint(clientX, clientY)
+        : [document.elementFromPoint(clientX, clientY)].filter(Boolean);
+    if (!stack || stack.length === 0) {
+        return null;
+    }
+
+    for (let i = 0; i < stack.length; i += 1) {
+        const node = stack[i];
+        if (!node || node === document.body || node === document.documentElement) continue;
+
+        const requestRow = node.closest?.('.tree-request[data-folder-id][data-request-id]');
+        if (requestRow?.dataset?.folderId && requestRow?.dataset?.requestId) {
+            const rect = requestRow.getBoundingClientRect();
+            const insertAfter = clientY >= (rect.top + rect.height / 2);
+            return {
+                folderId: String(requestRow.dataset.folderId),
+                requestId: String(requestRow.dataset.requestId),
+                insertAfter
+            };
+        }
+
+        const folderNode = node.closest?.('.tree-folder[data-folder-id], .tree-children[data-folder-id]');
+        if (folderNode?.dataset?.folderId) {
+            return {
+                folderId: String(folderNode.dataset.folderId),
+                requestId: '',
+                insertAfter: false
+            };
+        }
+    }
+    return null;
+}
+
+function areCollectionDropInfosEqual(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return String(a.folderId || '') === String(b.folderId || '')
+        && String(a.requestId || '') === String(b.requestId || '')
+        && !!a.insertAfter === !!b.insertAfter;
+}
+
+function setCollectionPointerDropTarget(dropInfo) {
+    if (areCollectionDropInfosEqual(pointerDragHoverInfo, dropInfo)) return;
+
+    pointerDragHoverInfo = dropInfo || null;
+    clearCollectionDropTargets();
+    if (!pointerDragHoverInfo?.folderId) {
+        logCollectionDrag('pointer-hover-clear', {});
+        return;
+    }
+
+    if (pointerDragHoverInfo.requestId) {
+        const requestNode = findCollectionRequestElementById(pointerDragHoverInfo.requestId);
+        if (requestNode) {
+            requestNode.classList.add('drop-target');
+            requestNode.classList.add(pointerDragHoverInfo.insertAfter ? 'drop-target-after' : 'drop-target-before');
+        }
+    } else {
+        const folderNode = findCollectionDropElementByFolderId(pointerDragHoverInfo.folderId);
+        if (folderNode) {
+            folderNode.classList.add('drop-target');
+        }
+    }
+    logCollectionDrag('pointer-hover-target', pointerDragHoverInfo);
+}
+
+function setCollectionPointerCursorLock(enabled) {
+    const root = document.documentElement;
+    const body = document.body;
+    if (!root || !body) return;
+
+    root.classList.toggle('collection-pointer-cursor-lock', enabled);
+    body.classList.toggle('collection-pointer-cursor-lock', enabled);
+
+    if (enabled) {
+        root.style.cursor = 'grabbing';
+        body.style.cursor = 'grabbing';
+        return;
+    }
+
+    root.style.cursor = '';
+    body.style.cursor = '';
+}
+
+function extractCollectionDragPayload(evt) {
+    if (draggingCollectionRequestState) return draggingCollectionRequestState;
+    const data = evt?.dataTransfer?.getData('application/json') || evt?.dataTransfer?.getData('text/plain');
+    if (!data) {
+        logCollectionDrag('extract-payload-empty', {
+            hasDataTransfer: !!evt?.dataTransfer
+        });
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(data);
+        if (!parsed?.requestId) {
+            logCollectionDrag('extract-payload-invalid', { parsed });
+            return null;
+        }
+        return {
+            requestId: String(parsed.requestId),
+            fromFolderId: parsed?.fromFolderId != null ? String(parsed.fromFolderId) : ''
+        };
+    } catch {
+        logCollectionDrag('extract-payload-json-error', { raw: data });
+        return null;
+    }
+}
+
+function canDropCollectionRequest(requestId, dropInfo) {
+    const targetFolderId = String(dropInfo?.folderId || '');
+    if (!targetFolderId) {
+        logCollectionDrag('can-drop-missing-target-folder', { requestId, dropInfo });
+        return false;
+    }
+
+    const location = findCollectionRequestLocation(requestId);
+    if (!location) {
+        logCollectionDrag('can-drop-location-missing', { requestId, dropInfo });
+        return false;
+    }
+
+    const sourceFolderId = String(location.folder?.id || '');
+    if (sourceFolderId !== targetFolderId) {
+        return true;
+    }
+
+    const sourceChildren = Array.isArray(location.folder?.children) ? location.folder.children : [];
+    const sourceIndex = location.requestIndex;
+    if (sourceIndex < 0 || sourceIndex >= sourceChildren.length) {
+        return false;
+    }
+
+    const targetRequestId = String(dropInfo?.requestId || '');
+    if (!targetRequestId) {
+        return sourceIndex !== sourceChildren.length - 1;
+    }
+
+    if (targetRequestId === requestId) {
+        return false;
+    }
+
+    const targetIndex = sourceChildren.findIndex((item) => String(item?.id) === targetRequestId);
+    if (targetIndex < 0) {
+        return false;
+    }
+
+    let nextIndex = targetIndex + (dropInfo.insertAfter ? 1 : 0);
+    if (sourceIndex < nextIndex) {
+        nextIndex -= 1;
+    }
+    return nextIndex !== sourceIndex;
+}
+
+async function moveCollectionRequestToFolder(requestId, dropInfo) {
+    const targetFolderId = String(dropInfo?.folderId || '');
+    const targetRequestId = String(dropInfo?.requestId || '');
+    const insertAfter = !!dropInfo?.insertAfter;
+    logCollectionDrag('move-start', { requestId, targetFolderId, targetRequestId, insertAfter });
+    const location = findCollectionRequestLocation(requestId);
+    if (!location) {
+        logCollectionDrag('move-failed-location-missing', { requestId, targetFolderId });
+        return;
+    }
+
+    const sourceFolder = location.folder;
+    const targetFolder = findCollectionFolderById(targetFolderId);
+    if (!sourceFolder || !targetFolder) {
+        logCollectionDrag('move-failed-folder-missing', {
+            requestId,
+            sourceFolderId: sourceFolder?.id,
+            targetFolderId
+        });
+        return;
+    }
+
+    if (!canDropCollectionRequest(requestId, {
+        folderId: targetFolderId,
+        requestId: targetRequestId,
+        insertAfter
+    })) {
+        logCollectionDrag('move-skipped-noop', { requestId, targetFolderId, targetRequestId, insertAfter });
+        return;
+    }
+
+    const sourceChildren = Array.isArray(sourceFolder.children) ? sourceFolder.children : [];
+    const requestIndex = location.requestIndex;
+    if (requestIndex < 0 || requestIndex >= sourceChildren.length) {
+        logCollectionDrag('move-failed-bad-index', {
+            requestId,
+            requestIndex,
+            sourceLength: sourceChildren.length
+        });
+        return;
+    }
+
+    const [request] = sourceChildren.splice(requestIndex, 1);
+    if (!Array.isArray(targetFolder.children)) targetFolder.children = [];
+    const targetChildren = targetFolder.children;
+
+    let insertIndex = targetChildren.length;
+    if (targetRequestId) {
+        const targetIndex = targetChildren.findIndex((item) => String(item?.id) === targetRequestId);
+        if (targetIndex > -1) {
+            insertIndex = targetIndex + (insertAfter ? 1 : 0);
+        }
+    }
+    if (insertIndex < 0) insertIndex = 0;
+    if (insertIndex > targetChildren.length) insertIndex = targetChildren.length;
+    targetChildren.splice(insertIndex, 0, request);
+
+    collapsedCollectionFolderIds.delete(String(targetFolderId));
+    renderCollections();
+    const persisted = await persistCollectionsState('move request');
+    logCollectionDrag('move-persist-result', {
+        requestId,
+        fromFolderId: String(sourceFolder.id),
+        toFolderId: String(targetFolderId),
+        targetRequestId,
+        insertAfter,
+        persisted
+    });
+    if (persisted) {
+        showToast('Request moved');
+    }
+}
+
+window.handleCollectionRequestDragStart = function(requestId, fromFolderId, evt) {
+    if (draggingCollectionRequestClearTimer) {
+        clearTimeout(draggingCollectionRequestClearTimer);
+        draggingCollectionRequestClearTimer = null;
+    }
+    draggingCollectionRequestState = {
+        requestId: String(requestId),
+        fromFolderId: String(fromFolderId)
+    };
+    logCollectionDrag('dragstart', draggingCollectionRequestState);
+
+    const target = getEventTarget(evt);
+    const row = target ? target.closest('.tree-item') : null;
+    if (row) row.classList.add('dragging');
+
+    if (evt?.dataTransfer) {
+        evt.dataTransfer.effectAllowed = 'move';
+        const payloadText = JSON.stringify(draggingCollectionRequestState);
+        evt.dataTransfer.setData('application/json', payloadText);
+        evt.dataTransfer.setData('text/plain', payloadText);
+    }
+
+    hideCollectionItemMenu();
+};
+
+window.handleCollectionRequestDragEnd = function(evt) {
+    const payload = draggingCollectionRequestState ? { ...draggingCollectionRequestState } : null;
+    logCollectionDrag('dragend', { payload });
+    clearCollectionDropTargets();
+    const target = getEventTarget(evt);
+    const row = target ? target.closest('.tree-item') : null;
+    if (row) row.classList.remove('dragging');
+    if (draggingCollectionRequestClearTimer) {
+        clearTimeout(draggingCollectionRequestClearTimer);
+    }
+    draggingCollectionRequestClearTimer = setTimeout(() => {
+        draggingCollectionRequestState = null;
+        draggingCollectionRequestClearTimer = null;
+    }, 120);
+};
+
+window.handleCollectionFolderDragOver = function(folderId, evt) {
+    const payload = extractCollectionDragPayload(evt);
+    if (!payload) {
+        logCollectionDrag('dragover-no-payload', { folderId });
+        return;
+    }
+    if (!canDropCollectionRequest(payload.requestId, { folderId, requestId: '', insertAfter: false })) {
+        logCollectionDrag('dragover-rejected', {
+            folderId,
+            requestId: payload.requestId
+        });
+        return;
+    }
+
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+    const target = evt.currentTarget;
+    if (target) target.classList.add('drop-target');
+    logCollectionDrag('dragover-accepted', {
+        folderId,
+        requestId: payload.requestId
+    });
+};
+
+window.handleCollectionFolderDragLeave = function(evt) {
+    const target = evt.currentTarget;
+    if (!target) return;
+    if (evt.relatedTarget && target.contains(evt.relatedTarget)) return;
+    target.classList.remove('drop-target');
+};
+
+window.handleCollectionFolderDrop = async function(folderId, evt) {
+    evt.preventDefault();
+    evt.stopPropagation();
+    const payload = extractCollectionDragPayload(evt);
+    clearCollectionDropTargets();
+    if (!payload) {
+        logCollectionDrag('drop-no-payload', { folderId });
+        return;
+    }
+    logCollectionDrag('drop', {
+        folderId,
+        requestId: payload.requestId,
+        fromFolderId: payload.fromFolderId
+    });
+    await moveCollectionRequestToFolder(payload.requestId, {
+        folderId,
+        requestId: '',
+        insertAfter: false
+    });
+    if (draggingCollectionRequestClearTimer) {
+        clearTimeout(draggingCollectionRequestClearTimer);
+        draggingCollectionRequestClearTimer = null;
+    }
+    draggingCollectionRequestState = null;
+};
+
+window.handleCollectionRequestPointerDown = function(requestId, fromFolderId, evt) {
+    if (!evt) return;
+    if (typeof evt.button === 'number' && evt.button !== 0) return;
+    const target = getEventTarget(evt);
+    if (target?.closest?.('.tree-item-action-btn')) return;
+
+    pendingCollectionPointerDrag = {
+        requestId: String(requestId),
+        fromFolderId: String(fromFolderId),
+        startX: evt.clientX,
+        startY: evt.clientY,
+        row: target ? target.closest('.tree-request') : null
+    };
+    setCollectionPointerCursorLock(true);
+    activeCollectionPointerDrag = null;
+    setCollectionPointerDropTarget(null);
+    logCollectionDrag('pointer-down', {
+        requestId: String(requestId),
+        fromFolderId: String(fromFolderId)
+    });
+};
+
+function activateCollectionPointerDrag() {
+    if (!pendingCollectionPointerDrag) return;
+    activeCollectionPointerDrag = {
+        requestId: pendingCollectionPointerDrag.requestId,
+        fromFolderId: pendingCollectionPointerDrag.fromFolderId,
+        row: pendingCollectionPointerDrag.row || null
+    };
+    pendingCollectionPointerDrag = null;
+    draggingCollectionRequestState = {
+        requestId: activeCollectionPointerDrag.requestId,
+        fromFolderId: activeCollectionPointerDrag.fromFolderId
+    };
+    document.documentElement.classList.add('collection-pointer-dragging');
+    document.body.classList.add('collection-pointer-dragging');
+    document.documentElement.style.cursor = 'grabbing';
+    document.body.style.cursor = 'grabbing';
+    if (activeCollectionPointerDrag.row) {
+        activeCollectionPointerDrag.row.classList.add('dragging');
+    }
+    logCollectionDrag('pointer-drag-start', {
+        requestId: activeCollectionPointerDrag.requestId,
+        fromFolderId: activeCollectionPointerDrag.fromFolderId
+    });
+}
+
+window.handleCollectionPointerMove = function(evt) {
+    if (!pendingCollectionPointerDrag && !activeCollectionPointerDrag) return;
+    if (!evt) return;
+
+    if (pendingCollectionPointerDrag) {
+        const dx = Math.abs(evt.clientX - pendingCollectionPointerDrag.startX);
+        const dy = Math.abs(evt.clientY - pendingCollectionPointerDrag.startY);
+        if (Math.hypot(dx, dy) >= COLLECTION_DRAG_START_THRESHOLD) {
+            activateCollectionPointerDrag();
+        } else {
+            return;
+        }
+    }
+
+    if (!activeCollectionPointerDrag) return;
+
+    const dropInfo = getCollectionDropInfoFromPoint(evt.clientX, evt.clientY);
+    logCollectionDrag('pointer-move-hit', {
+        x: evt.clientX,
+        y: evt.clientY,
+        dropInfo
+    });
+    if (!dropInfo?.folderId || !canDropCollectionRequest(activeCollectionPointerDrag.requestId, dropInfo)) {
+        setCollectionPointerDropTarget(null);
+        return;
+    }
+    setCollectionPointerDropTarget(dropInfo);
+};
+
+window.handleCollectionPointerUp = async function(evt, forceCancel = false) {
+    if (!pendingCollectionPointerDrag && !activeCollectionPointerDrag) {
+        setCollectionPointerCursorLock(false);
+        return;
+    }
+
+    if (pendingCollectionPointerDrag) {
+        logCollectionDrag('pointer-up-without-drag', {
+            requestId: pendingCollectionPointerDrag.requestId
+        });
+        pendingCollectionPointerDrag = null;
+        setCollectionPointerCursorLock(false);
+        return;
+    }
+
+    const dragState = activeCollectionPointerDrag;
+    const hoverInfo = pointerDragHoverInfo;
+    const movingRequestId = dragState?.requestId ? String(dragState.requestId) : '';
+    const canDrop = !forceCancel && !!hoverInfo?.folderId && !!movingRequestId && canDropCollectionRequest(movingRequestId, hoverInfo);
+
+    if (dragState?.row) {
+        dragState.row.classList.remove('dragging');
+    }
+
+    activeCollectionPointerDrag = null;
+    pendingCollectionPointerDrag = null;
+    draggingCollectionRequestState = null;
+    document.documentElement.classList.remove('collection-pointer-dragging');
+    document.body.classList.remove('collection-pointer-dragging');
+    document.documentElement.style.cursor = '';
+    document.body.style.cursor = '';
+    setCollectionPointerCursorLock(false);
+    setCollectionPointerDropTarget(null);
+
+    if (!canDrop) {
+        logCollectionDrag('pointer-drop-canceled', {
+            forceCancel,
+            movingRequestId,
+            hoverInfo
+        });
+        return;
+    }
+
+    logCollectionDrag('pointer-drop', {
+        movingRequestId,
+        hoverInfo
+    });
+    await moveCollectionRequestToFolder(movingRequestId, hoverInfo);
+    collectionPointerDragSuppressClickUntil = Date.now() + 220;
+
+    if (evt?.preventDefault) {
+        evt.preventDefault();
+    }
+};
+
+function createCollectionActionButton(type, folderId, requestId = '') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tree-item-action-btn';
+    btn.title = 'More actions';
+    btn.innerHTML = getUiIconSvg('more-horizontal');
+    btn.addEventListener('click', (evt) => {
+        window.toggleCollectionItemMenu(type, folderId, requestId, evt);
+    });
+    return btn;
+}
+
+function collectionRequestMatchesKeyword(request, keyword) {
+    const loweredKeyword = (keyword || '').trim().toLowerCase();
+    if (!loweredKeyword) return true;
+    const name = (request?.name || '').toLowerCase();
+    const url = (request?.url || '').toLowerCase();
+    const method = (request?.method || '').toLowerCase();
+    return name.includes(loweredKeyword) || url.includes(loweredKeyword) || method.includes(loweredKeyword);
+}
+
+function buildCollectionsHierarchy(folders) {
+    const normalized = normalizeCollectionsState(folders);
+    const idSet = new Set(normalized.map((folder) => String(folder.id)));
+    const roots = [];
+    const childrenByParent = new Map();
+
+    normalized.forEach((folder) => {
+        const folderId = String(folder.id);
+        let parentId = getCollectionFolderParentId(folder);
+        if (parentId && (parentId === folderId || !idSet.has(parentId))) {
+            parentId = null;
+        }
+
+        folder.parent_id = parentId;
+        if (!parentId) {
+            roots.push(folder);
+            return;
+        }
+
+        if (!childrenByParent.has(parentId)) {
+            childrenByParent.set(parentId, []);
+        }
+        childrenByParent.get(parentId).push(folder);
+    });
+
+    if (roots.length === 0 && normalized.length > 0) {
+        childrenByParent.clear();
+        normalized.forEach((folder) => {
+            folder.parent_id = null;
+            roots.push(folder);
+        });
+    }
+
+    return {
+        normalized,
+        roots,
+        childrenByParent
+    };
+}
+
+function buildVisibleCollectionFolderIds(roots, childrenByParent, keyword) {
+    const loweredKeyword = (keyword || '').trim().toLowerCase();
+    const visibleIds = new Set();
+
+    const visit = (folder, ancestorIds = new Set()) => {
+        const folderId = String(folder.id);
+        if (ancestorIds.has(folderId)) {
+            return false;
+        }
+
+        const nextAncestors = new Set(ancestorIds);
+        nextAncestors.add(folderId);
+
+        const childFolders = childrenByParent.get(folderId) || [];
+        const hasVisibleDescendant = childFolders.some((child) => visit(child, nextAncestors));
+        const ownRequests = Array.isArray(folder.children) ? folder.children : [];
+        const hasVisibleRequest = loweredKeyword
+            ? ownRequests.some((request) => collectionRequestMatchesKeyword(request, loweredKeyword))
+            : true;
+        const isFolderMatch = loweredKeyword
+            ? (folder.name || '').toLowerCase().includes(loweredKeyword)
+            : true;
+        const visible = loweredKeyword
+            ? (isFolderMatch || hasVisibleRequest || hasVisibleDescendant)
+            : true;
+
+        if (visible) {
+            visibleIds.add(folderId);
+        }
+        return visible;
+    };
+
+    roots.forEach((folder) => {
+        visit(folder);
+    });
+
+    return visibleIds;
+}
+
+function renderCollectionFolderNode(folder, depth, keyword, visibleFolderIds, childrenByParent) {
+    const folderId = String(folder.id);
+    if (keyword && !visibleFolderIds.has(folderId)) {
+        return null;
+    }
+
+    const isCollapsed = collapsedCollectionFolderIds.has(folderId);
+    const folderGroup = document.createElement('div');
+
+    const folderRow = document.createElement('div');
+    folderRow.className = `tree-item tree-folder ${isCollapsed ? 'collapsed' : ''}`;
+    folderRow.dataset.folderId = folderId;
+    if (depth > 0) {
+        folderRow.style.paddingLeft = `${10 + depth * 14}px`;
+    }
+    folderRow.addEventListener('click', () => {
+        window.toggleFolder(folderRow);
+    });
+    folderRow.addEventListener('dragover', (evt) => window.handleCollectionFolderDragOver(folderId, evt));
+    folderRow.addEventListener('dragleave', (evt) => window.handleCollectionFolderDragLeave(evt));
+    folderRow.addEventListener('drop', (evt) => window.handleCollectionFolderDrop(folderId, evt));
+
+    const chevron = document.createElement('span');
+    chevron.className = 'icon icon-chevron';
+    chevron.innerHTML = getUiIconSvg('chevron-down');
+
+    const label = document.createElement('span');
+    label.className = 'tree-folder-label';
+    const folderIcon = document.createElement('span');
+    folderIcon.className = 'icon icon-folder';
+    folderIcon.innerHTML = getUiIconSvg('folder');
+    const name = document.createElement('span');
+    name.className = 'tree-folder-name';
+    name.textContent = folder.name || 'Untitled folder';
+    label.appendChild(folderIcon);
+    label.appendChild(name);
+
+    folderRow.appendChild(chevron);
+    folderRow.appendChild(label);
+    folderRow.appendChild(createCollectionActionButton('folder', folderId, ''));
+
+    const childrenWrap = document.createElement('div');
+    childrenWrap.className = 'tree-children';
+    childrenWrap.dataset.folderId = folderId;
+    if (isCollapsed) {
+        childrenWrap.style.display = 'none';
+    }
+    childrenWrap.addEventListener('dragover', (evt) => window.handleCollectionFolderDragOver(folderId, evt));
+    childrenWrap.addEventListener('dragleave', (evt) => window.handleCollectionFolderDragLeave(evt));
+    childrenWrap.addEventListener('drop', (evt) => window.handleCollectionFolderDrop(folderId, evt));
+
+    const childFolders = childrenByParent.get(folderId) || [];
+    childFolders.forEach((childFolder) => {
+        const childNode = renderCollectionFolderNode(
+            childFolder,
+            depth + 1,
+            keyword,
+            visibleFolderIds,
+            childrenByParent
+        );
+        if (childNode) {
+            childrenWrap.appendChild(childNode);
+        }
+    });
+
+    const children = Array.isArray(folder.children) ? folder.children : [];
+    const visibleRequests = keyword
+        ? children.filter((request) => collectionRequestMatchesKeyword(request, keyword))
+        : children;
+
+    visibleRequests.forEach((child) => {
+        const childId = child?.id != null ? String(child.id) : generateCollectionEntityId('req');
+        if (child && child.id == null) {
+            child.id = childId;
+        }
+        const method = normalizeMethodValue(child?.method || 'GET');
+
+        const requestRow = document.createElement('div');
+        requestRow.className = 'tree-item tree-request is-draggable';
+        requestRow.draggable = false;
+        requestRow.dataset.folderId = folderId;
+        requestRow.dataset.requestId = childId;
+        if (depth > 0) {
+            requestRow.style.paddingLeft = `${24 + depth * 14}px`;
+        }
+        if (window.PointerEvent) {
+            requestRow.addEventListener('pointerdown', (evt) => {
+                window.handleCollectionRequestPointerDown(childId, folderId, evt);
+            });
+        } else {
+            requestRow.addEventListener('mousedown', (evt) => {
+                window.handleCollectionRequestPointerDown(childId, folderId, evt);
+            });
+        }
+        requestRow.addEventListener('click', (evt) => {
+            if (Date.now() < collectionPointerDragSuppressClickUntil) {
+                evt.preventDefault();
+                evt.stopPropagation();
+                return;
+            }
+        });
+        requestRow.addEventListener('dblclick', (evt) => {
+            if (Date.now() < collectionPointerDragSuppressClickUntil) {
+                evt.preventDefault();
+                evt.stopPropagation();
+                return;
+            }
+            window.selectCollectionRequest(childId);
+        });
+
+        const badge = document.createElement('span');
+        badge.className = `method-badge method-${method}`;
+        badge.textContent = method;
+
+        const text = document.createElement('span');
+        text.className = 'tree-item-text';
+        text.textContent = child?.name || child?.url || 'Untitled request';
+
+        requestRow.appendChild(badge);
+        requestRow.appendChild(text);
+        requestRow.appendChild(createCollectionActionButton('request', folderId, childId));
+        childrenWrap.appendChild(requestRow);
+    });
+
+    folderGroup.appendChild(folderRow);
+    folderGroup.appendChild(childrenWrap);
+    return folderGroup;
+}
+
+function renderCollections() {
+    hideCollectionItemMenu();
+    const panel = document.getElementById('collectionsContent');
+    panel.innerHTML = '';
+
+    const hierarchy = buildCollectionsHierarchy(collections);
+    collections = hierarchy.normalized;
+    const allFolderIds = new Set(collections.map((folder) => String(folder?.id)));
+    collapsedCollectionFolderIds.forEach((id) => {
+        if (!allFolderIds.has(id)) {
+            collapsedCollectionFolderIds.delete(id);
+        }
+    });
+
+    const keyword = collectionsSearchQuery.trim().toLowerCase();
+    const visibleFolderIds = buildVisibleCollectionFolderIds(
+        hierarchy.roots,
+        hierarchy.childrenByParent,
+        keyword
+    );
+    const visibleRoots = keyword
+        ? hierarchy.roots.filter((folder) => visibleFolderIds.has(String(folder.id)))
+        : hierarchy.roots;
+
+    if (visibleRoots.length === 0) {
+        panel.innerHTML = `
+            <div class="empty-state" style="padding: 28px 20px;">
+                <div class="empty-state-icon">${getUiIconSvg('search')}</div>
+                <div>No collections matched</div>
+            </div>
+        `;
+        return;
+    }
+
+    visibleRoots.forEach((folder) => {
+        const node = renderCollectionFolderNode(
+            folder,
+            0,
+            keyword,
+            visibleFolderIds,
+            hierarchy.childrenByParent
+        );
+        if (node) {
+            panel.appendChild(node);
+        }
+    });
+}
+
+function generateCollectionFolderName(parentFolderId = null) {
+    const base = 'collection';
+    const normalizedParentId = parentFolderId != null ? String(parentFolderId) : null;
+    const names = new Set(
+        collections
+            .filter((item) => {
+                const itemParentId = getCollectionFolderParentId(item);
+                if (normalizedParentId == null) {
+                    return itemParentId == null;
+                }
+                return itemParentId === normalizedParentId;
+            })
+            .map((item) => String(item?.name || '').toLowerCase())
+    );
+    if (!names.has(base)) return base;
+
+    let index = 2;
+    while (names.has(`${base} ${index}`)) {
+        index += 1;
+    }
+    return `${base} ${index}`;
+}
+
+window.filterCollections = function(query) {
+    collectionsSearchQuery = query || '';
+    renderCollections();
+};
+
+window.createCollectionFolder = async function(parentFolderId = null) {
+    const normalizedParentId = parentFolderId != null ? String(parentFolderId) : null;
+    if (normalizedParentId && !findCollectionFolderById(normalizedParentId)) {
+        return;
+    }
+
+    const newFolder = {
+        id: generateCollectionEntityId('folder'),
+        name: generateCollectionFolderName(normalizedParentId),
+        type: 'folder',
+        parent_id: normalizedParentId,
+        children: []
+    };
+    collections.push(newFolder);
+    if (normalizedParentId) {
+        collapsedCollectionFolderIds.delete(normalizedParentId);
+    }
+    renderCollections();
+    if (await persistCollectionsState('create collection')) {
+        showToast(normalizedParentId ? 'Folder created' : 'Top-level collection created');
+    }
+};
+
+window.toggleFolder = function(element) {
+    hideCollectionItemMenu();
+    const children = element.nextElementSibling;
+    const folderId = String(element?.dataset?.folderId || '');
+    
+    if (children && children.classList.contains('tree-children')) {
+        if (children.style.display === 'none') {
+            children.style.display = 'block';
+            element.classList.remove('collapsed');
+            if (folderId) collapsedCollectionFolderIds.delete(folderId);
+        } else {
+            children.style.display = 'none';
+            element.classList.add('collapsed');
+            if (folderId) collapsedCollectionFolderIds.add(folderId);
+        }
+    }
+};
+
+window.selectCollectionRequest = function(id) {
+    hideCollectionItemMenu();
+    const location = findCollectionRequestLocation(id);
+    if (!location) return;
+
+    const payload = getCollectionRequestPayload(location.request);
     openRequestFromSource('collection', id, payload);
 };
 
@@ -898,12 +2978,22 @@ async function loadHistory() {
 function renderHistory() {
     const panel = document.getElementById('historyContent');
     panel.innerHTML = '';
+    const keyword = historySearchQuery.trim().toLowerCase();
+    const filteredHistory = keyword
+        ? history.filter((item) => {
+            const method = String(item?.method || '').toLowerCase();
+            const url = String(item?.url || '').toLowerCase();
+            const date = formatDateGroup(item?.timestamp || '').toLowerCase();
+            const time = formatTime(item?.timestamp || '').toLowerCase();
+            return method.includes(keyword) || url.includes(keyword) || date.includes(keyword) || time.includes(keyword);
+        })
+        : history;
     
-    if (history.length === 0) {
+    if (filteredHistory.length === 0) {
         panel.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">🕐</div>
-                <div>No history yet</div>
+                <div class="empty-state-icon">${getUiIconSvg(keyword ? 'search' : 'clock')}</div>
+                <div>${keyword ? 'No history matched' : 'No history yet'}</div>
             </div>
         `;
         return;
@@ -911,7 +3001,7 @@ function renderHistory() {
     
     // 按日期分组
     const groups = {};
-    history.forEach(item => {
+    filteredHistory.forEach(item => {
         const date = formatDateGroup(item.timestamp);
         if (!groups[date]) groups[date] = [];
         groups[date].push(item);
@@ -926,7 +3016,7 @@ function renderHistory() {
             <div class="history-date-header">${date}</div>
             ${groups[date].map(item => `
                 <div class="history-item ${item.id === currentHistoryId ? 'active' : ''}" 
-                     onclick="loadHistoryItem(${item.id})">
+                     ondblclick="loadHistoryItem(${item.id})">
                     <span class="method-badge method-${item.method}">${item.method}</span>
                     <span class="url">${truncateUrl(item.url)}</span>
                     <span class="time">${formatTime(item.timestamp)}</span>
@@ -937,6 +3027,11 @@ function renderHistory() {
         panel.appendChild(groupEl);
     });
 }
+
+window.filterHistory = function(query) {
+    historySearchQuery = query || '';
+    renderHistory();
+};
 
 window.loadHistoryItem = async function(id) {
     try {
@@ -959,6 +3054,12 @@ window.loadHistoryItem = async function(id) {
         if (item.response_data) {
             const response = JSON.parse(item.response_data);
             displayResponse(response);
+        } else {
+            const activeTab = getActiveTab();
+            if (activeTab) {
+                clearTabResponseState(activeTab);
+                applyActiveTabResponseToUI();
+            }
         }
         
         renderHistory();
@@ -1004,15 +3105,17 @@ window.switchResponseView = function(view) {
 
 window.switchBodyFormat = function(format) {
     const validFormats = ['json', 'xml', 'html', 'javascript', 'raw', 'hex', 'base64'];
-    if (!validFormats.includes(format)) {
+    const normalized = normalizeBodyFormatValue(format);
+    if (!validFormats.includes(normalized)) {
         return;
     }
 
-    currentBodyFormat = format;
+    currentBodyFormat = normalized;
     const bodyFormatSelect = document.getElementById('bodyFormatSelect');
-    if (bodyFormatSelect && bodyFormatSelect.value !== format) {
-        bodyFormatSelect.value = format;
+    if (bodyFormatSelect && bodyFormatSelect.value !== normalized) {
+        bodyFormatSelect.value = normalized;
     }
+    syncBodyFormatPickerDisplay();
 
     if (!canPreviewCurrentBody()) isBodyPreview = false;
     if (currentBodyFormat !== 'json') isBodyVisualize = false;
@@ -1107,6 +3210,9 @@ function updateResponsePanels() {
 
     const bodyViewTools = document.getElementById('bodyViewTools');
     bodyViewTools.classList.toggle('hidden', currentResponseView !== 'body');
+    if (currentResponseView !== 'body') {
+        hideBodyFormatPicker();
+    }
 
     updateSearchVisibility();
 }
@@ -1173,6 +3279,52 @@ function syncBodySearchMarks(scrollToActive = false) {
     }
 }
 
+function updateMasterCheckboxState(tbodyId, masterCheckboxId) {
+    const tbody = document.getElementById(tbodyId);
+    const master = document.getElementById(masterCheckboxId);
+    if (!tbody || !master) return;
+
+    const rowChecks = Array.from(tbody.querySelectorAll('.param-checkbox'));
+    const total = rowChecks.length;
+    if (total === 0) {
+        master.checked = false;
+        master.indeterminate = false;
+        return;
+    }
+
+    const checkedCount = rowChecks.filter((item) => item.checked).length;
+    master.checked = checkedCount === total;
+    master.indeterminate = checkedCount > 0 && checkedCount < total;
+}
+
+function updateParamsMasterCheckboxState() {
+    updateMasterCheckboxState('queryParamsBody', 'queryParamsSelectAll');
+}
+
+function updateHeadersMasterCheckboxState() {
+    updateMasterCheckboxState('headersBody', 'headersSelectAll');
+}
+
+window.toggleAllQueryParams = function(checked) {
+    const tbody = document.getElementById('queryParamsBody');
+    if (!tbody) return;
+    tbody.querySelectorAll('.param-checkbox').forEach((checkbox) => {
+        checkbox.checked = checked;
+    });
+    syncParamsToUrl();
+    updateParamsMasterCheckboxState();
+};
+
+window.toggleAllHeaders = function(checked) {
+    const tbody = document.getElementById('headersBody');
+    if (!tbody) return;
+    tbody.querySelectorAll('.param-checkbox').forEach((checkbox) => {
+        checkbox.checked = checked;
+    });
+    updateBadges();
+    updateHeadersMasterCheckboxState();
+};
+
 // ==================== Query 参数管理 ====================
 window.addQueryParam = function(key = '', value = '', description = '', enabled = true) {
     const tbody = document.getElementById('queryParamsBody');
@@ -1198,9 +3350,11 @@ window.addQueryParam = function(key = '', value = '', description = '', enabled 
     const checkbox = tr.querySelector('.param-checkbox');
     checkbox.addEventListener('change', () => {
         syncParamsToUrl();
+        updateParamsMasterCheckboxState();
     });
     
     updateBadges();
+    updateParamsMasterCheckboxState();
 };
 
 function collectQueryParams() {
@@ -1228,6 +3382,7 @@ window.deleteParamRow = function(btn) {
     btn.closest('tr').remove();
     syncParamsToUrl();
     updateBadges();
+    updateParamsMasterCheckboxState();
 };
 
 // ==================== Headers 管理 ====================
@@ -1254,9 +3409,11 @@ window.addHeader = function(key = '', value = '', description = '', enabled = tr
     const checkbox = tr.querySelector('.param-checkbox');
     checkbox.addEventListener('change', () => {
         updateBadges();
+        updateHeadersMasterCheckboxState();
     });
     
     updateBadges();
+    updateHeadersMasterCheckboxState();
 };
 
 function collectHeaders() {
@@ -1283,6 +3440,7 @@ function collectHeaders() {
 window.deleteHeaderRow = function(btn) {
     btn.closest('tr').remove();
     updateBadges();
+    updateHeadersMasterCheckboxState();
 };
 
 // ==================== Body 类型管理 ====================
@@ -1470,14 +3628,28 @@ function updateBadges() {
     const headers = collectHeaders();
     const enabledHeaders = headers.filter(h => h.enabled && h.key).length;
     document.getElementById('headersBadge').textContent = enabledHeaders;
+
+    updateParamsMasterCheckboxState();
+    updateHeadersMasterCheckboxState();
 }
 
 // ==================== 发送请求 ====================
 window.sendRequest = async function() {
-    const sendBtn = document.getElementById('sendBtn');
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'Sending...';
-    
+    const activeTab = getActiveTab();
+    if (!activeTab) {
+        showToast('Create a request tab first', 'error');
+        return;
+    }
+
+    if (isSendingRequest) {
+        window.cancelSendRequest(true);
+        return;
+    }
+
+    const sendOperationId = startSendOperation();
+    const requestTabId = activeTab.id;
+    currentRequest = activeTab;
+
     try {
         // 收集请求数据
         currentRequest.method = document.getElementById('methodSelect').value;
@@ -1519,50 +3691,68 @@ window.sendRequest = async function() {
             body: bodyPayload.body,
             body_base64: bodyPayload.bodyBase64
         };
+        const requestSnapshot = JSON.parse(JSON.stringify(currentRequest));
         
         const responseData = await invoke('send_http_request', { request: requestData });
+        if (isSendOperationCanceled(sendOperationId)) {
+            return;
+        }
         
         // 显示响应
-        displayResponse(responseData);
+        displayResponse(responseData, {
+            persistToActiveTab: true,
+            targetTabId: requestTabId
+        });
         
         // 保存到历史
-        await saveToHistory(currentRequest, responseData);
+        await saveToHistory(requestSnapshot, responseData);
         
     } catch (error) {
+        if (isSendOperationCanceled(sendOperationId)) {
+            return;
+        }
         console.error('Request error:', error);
         const message = error?.message || String(error);
-        latestResponseData = { body: message, headers: {}, body_base64: null };
-        currentBodyFormat = 'raw';
-        isBodyPreview = false;
-        isBodyVisualize = false;
-        updatePreviewButtonState();
-        updateVisualizeButtonState();
-        document.getElementById('statusCode').textContent = 'Error';
-        document.getElementById('statusCode').className = 'status-code status-error';
-        document.getElementById('responseTime').textContent = '-- ms';
-        document.getElementById('responseSize').textContent = '-- B';
-        switchResponseView('body');
-        renderResponseBody();
+        const errorResponse = { body: message, headers: {}, body_base64: null };
+        const targetTab = findRequestTabById(requestTabId);
+        if (targetTab) {
+            setTabResponseState(targetTab, errorResponse, { bodyFormat: 'raw', isError: true });
+        }
+        if (targetTab && targetTab.id === activeRequestTabId) {
+            applyActiveTabResponseToUI();
+            switchResponseView('body');
+        }
     } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
+        finishSendOperation(sendOperationId);
     }
 };
 
 // ==================== 显示响应 ====================
-function displayResponse(data) {
-    latestResponseData = data;
+function displayResponse(data, options = {}) {
+    const hasTargetTabId = typeof options.targetTabId === 'string' && options.targetTabId.length > 0;
+    const targetTab = options.targetTabId
+        ? findRequestTabById(options.targetTabId)
+        : getActiveTab();
 
-    // 状态码
-    const statusCode = document.getElementById('statusCode');
-    statusCode.textContent = `${data.status} ${data.status_text}`;
-    statusCode.className = 'status-code ' + 
-        (data.status < 300 ? 'status-success' : 
-         data.status < 500 ? 'status-warning' : 'status-error');
-    
-    // 时间和大小
-    document.getElementById('responseTime').textContent = `${data.duration} ms`;
-    document.getElementById('responseSize').textContent = formatSize(data.size);
+    if (hasTargetTabId && !targetTab) {
+        return;
+    }
+    if (targetTab && options.persistToActiveTab !== false) {
+        setTabResponseState(targetTab, data, {
+            bodyFormat: inferResponseBodyFormat(data),
+            isError: false
+        });
+    }
+
+    const shouldUpdateUI = targetTab
+        ? targetTab.id === activeRequestTabId
+        : !hasTargetTabId;
+    if (!shouldUpdateUI) {
+        return;
+    }
+
+    latestResponseData = data;
+    applyResponseStatusMeta(data, false);
 
     const inferredFormat = inferResponseBodyFormat(data);
     currentBodyFormat = inferredFormat;
@@ -1624,7 +3814,7 @@ function renderResponseBody() {
     if (!latestResponseData) {
         responseBodyContent.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">📡</div>
+                <div class="empty-state-icon">${getUiIconSvg('signal')}</div>
                 <div>Click Send to get a response</div>
             </div>
         `;
@@ -1694,7 +3884,7 @@ function renderJsonVisualizedBody(container) {
     } catch {
         container.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">⚠️</div>
+                <div class="empty-state-icon">${getUiIconSvg('warning')}</div>
                 <div>JSON visualize is unavailable for this response</div>
             </div>
         `;
@@ -1717,7 +3907,7 @@ function renderJsonVisualizedBody(container) {
     if (filteredRows.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">🔍</div>
+                <div class="empty-state-icon">${getUiIconSvg('search')}</div>
                 <div>No matched fields in JSON visualize</div>
             </div>
         `;
@@ -1758,7 +3948,7 @@ function renderResponseHeaders(headers) {
     if (entries.length === 0) {
         responseHeaders.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">📭</div>
+                <div class="empty-state-icon">${getUiIconSvg('inbox')}</div>
                 <div>No headers received</div>
             </div>
         `;
@@ -1785,7 +3975,7 @@ function renderResponseCookies(headers) {
     if (!setCookie) {
         responseCookies.innerHTML = `
             <div class="empty-state">
-                <div class="empty-state-icon">🍪</div>
+                <div class="empty-state-icon">${getUiIconSvg('cookie')}</div>
                 <div>No cookies received</div>
             </div>
         `;
@@ -1994,25 +4184,23 @@ function flattenJson(value, path, rows, depth) {
 
 // ==================== 保存请求 ====================
 window.saveRequest = async function() {
+    if (!getActiveTab()) {
+        showToast('Create a request tab first', 'error');
+        return;
+    }
     syncCurrentRequestFromUI();
     openSaveRequestModal();
 };
 
 window.createNewFolder = function() {
-    const name = prompt('Enter folder name:');
-    if (name) {
-        const newFolder = {
-            id: Date.now().toString(),
-            name: name,
-            children: []
-        };
-        collections.push(newFolder);
-        renderCollections();
-        showToast('Folder created in memory. Add a request to persist it.');
-    }
+    window.createCollectionFolder();
 };
 
 window.createNewRequest = function() {
+    if (!getActiveTab()) {
+        showToast('Create a request tab first', 'error');
+        return;
+    }
     syncCurrentRequestFromUI();
     openSaveRequestModal();
 };
@@ -2020,7 +4208,10 @@ window.createNewRequest = function() {
 window.openSaveRequestModal = function() {
     syncCurrentRequestFromUI();
     const active = getActiveTab();
-    if (!active) return;
+    if (!active) {
+        showToast('Create a request tab first', 'error');
+        return;
+    }
 
     const nameInput = document.getElementById('saveRequestNameInput');
     const folderSelect = document.getElementById('saveRequestFolderSelect');
@@ -2087,11 +4278,98 @@ window.clearHistory = async function() {
 
 window.openImportModal = function() {
     document.getElementById('importModal').classList.add('active');
+    updateImportFileSelection(null);
+    const fileInput = document.getElementById('importFileInput');
+    if (fileInput) {
+        fileInput.value = '';
+    }
     document.getElementById('importTextarea').focus();
 };
 
 window.closeImportModal = function() {
     document.getElementById('importModal').classList.remove('active');
+    updateImportFileSelection(null);
+    const fileInput = document.getElementById('importFileInput');
+    if (fileInput) {
+        fileInput.value = '';
+    }
+};
+
+function updateImportFileSelection(fileRecord) {
+    selectedImportCollectionFile = fileRecord;
+    const selectedNameEl = document.getElementById('importFileSelectedName');
+    if (!selectedNameEl) return;
+    selectedNameEl.textContent = fileRecord?.name || 'No file selected';
+}
+
+window.chooseImportCollectionFile = function() {
+    const input = document.getElementById('importFileInput');
+    if (!input) return;
+    input.click();
+};
+
+window.handleImportCollectionFileChange = async function(evt) {
+    const file = evt?.target?.files?.[0];
+    if (!file) {
+        updateImportFileSelection(null);
+        return;
+    }
+
+    try {
+        const text = await file.text();
+        updateImportFileSelection({
+            name: file.name || 'collection.json',
+            content: text
+        });
+    } catch (error) {
+        console.error('Read import file error:', error);
+        updateImportFileSelection(null);
+        showToast('Failed to read selected file', 'error');
+    }
+};
+
+window.importCollectionFile = async function() {
+    if (!selectedImportCollectionFile?.content) {
+        showToast('Please choose a local Postman file first', 'error');
+        return;
+    }
+
+    try {
+        const imported = await invoke('import_collection_json', {
+            jsonText: selectedImportCollectionFile.content,
+            sourceName: selectedImportCollectionFile.name || 'Imported Collection'
+        });
+        collections = normalizeCollectionsState(Array.isArray(imported) ? imported : []);
+        collectionsSearchQuery = '';
+        const searchInput = document.getElementById('collectionsSearchInput');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        renderCollections();
+
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && (sidebar.classList.contains('collapsed') || sidebar.getBoundingClientRect().width < 8)) {
+            sidebar.classList.remove('collapsed');
+            sidebar.style.width = '280px';
+            syncWorkspaceTopbarState();
+        }
+        document.getElementById('collectionsPanel').classList.remove('hidden');
+        document.getElementById('historyPanel').classList.add('hidden');
+
+        const collectionsBtn = document.querySelector('.icon-sidebar .icon-item[title="Collections"]');
+        if (collectionsBtn) {
+            document.querySelectorAll('.icon-sidebar .icon-item').forEach((item) => item.classList.remove('active'));
+            collectionsBtn.classList.add('active');
+        }
+
+        closeImportModal();
+        createNewRequestTab();
+        showToast('Postman collection imported');
+    } catch (error) {
+        console.error('Import collection file error:', error);
+        const message = error?.message || String(error);
+        showToast(message || 'Import failed', 'error');
+    }
 };
 
 window.importCurl = function() {
@@ -2108,7 +4386,8 @@ window.importCurl = function() {
     }
 
     createNewRequestTab();
-    document.getElementById('methodSelect').value = parsed.method || 'GET';
+    setMethodSelectValue(parsed.method || 'GET');
+    syncMethodPickerDisplay();
     document.getElementById('urlInput').value = parsed.url;
     document.getElementById('requestNameInput').value = parsed.url;
     parseUrlToParams();
@@ -2166,7 +4445,10 @@ async function saveToHistory(request, response) {
 async function persistRequestToCollection(name, folderId = 'default') {
     syncCurrentRequestFromUI();
     const active = getActiveTab();
-    if (!active) return;
+    if (!active) {
+        showToast('Create a request tab first', 'error');
+        return;
+    }
 
     active.name = name;
     const queryParams = active.queryParams || collectQueryParams();
@@ -2223,18 +4505,21 @@ function initResizers() {
         if (newWidth <= collapseThreshold) {
             sidebar.classList.add('collapsed');
             sidebar.style.width = '0px';
+            syncWorkspaceTopbarState();
             return;
         }
 
         sidebar.classList.remove('collapsed');
         newWidth = Math.max(minSidebarWidth, Math.min(maxSidebarWidth, newWidth));
         sidebar.style.width = `${newWidth}px`;
+        syncWorkspaceTopbarState();
     });
     
     document.addEventListener('mouseup', () => {
         isResizingSidebar = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+        syncWorkspaceTopbarState();
     });
     
     // 水平分割线（请求/响应面板）
@@ -2246,13 +4531,34 @@ function initResizers() {
     let requestStartHeight = 0;
     let responseStartHeight = 0;
     let minRequestHeight = 120;
-    const minResponseHeight = 150;
+    let minResponseHeight = 150;
+    let panelTotalHeight = 0;
 
     function getRequestBuilderMinHeight() {
         const urlBar = requestBuilder.querySelector('.url-bar-container');
         const tabs = requestBuilder.querySelector('.tabs');
         const fixedHeight = (urlBar?.offsetHeight || 0) + (tabs?.offsetHeight || 0);
         return Math.max(96, fixedHeight + 4);
+    }
+
+    function getResponsePanelMinHeight() {
+        const computed = window.getComputedStyle(responsePanel);
+        const cssMinHeight = parseFloat(computed.minHeight) || 0;
+        return Math.max(150, Math.round(cssMinHeight));
+    }
+
+    function clampPanelHeights(nextRequestHeight) {
+        const maxRequestHeight = Math.max(minRequestHeight, panelTotalHeight - minResponseHeight);
+        const requestHeight = Math.min(Math.max(nextRequestHeight, minRequestHeight), maxRequestHeight);
+        const responseHeight = Math.max(minResponseHeight, panelTotalHeight - requestHeight);
+        return { requestHeight, responseHeight };
+    }
+
+    function applyPanelHeights(requestHeight, responseHeight) {
+        requestBuilder.style.flex = 'none';
+        requestBuilder.style.height = `${Math.round(requestHeight)}px`;
+        responsePanel.style.flex = 'none';
+        responsePanel.style.height = `${Math.round(responseHeight)}px`;
     }
     
     panelResizer.addEventListener('mousedown', (e) => {
@@ -2261,6 +4567,12 @@ function initResizers() {
         requestStartHeight = requestBuilder.getBoundingClientRect().height;
         responseStartHeight = responsePanel.getBoundingClientRect().height;
         minRequestHeight = getRequestBuilderMinHeight();
+        minResponseHeight = getResponsePanelMinHeight();
+        panelTotalHeight = requestStartHeight + responseStartHeight;
+        const requiredMinTotal = minRequestHeight + minResponseHeight;
+        if (panelTotalHeight < requiredMinTotal) {
+            panelTotalHeight = requiredMinTotal;
+        }
         document.body.style.cursor = 'row-resize';
         document.body.style.userSelect = 'none';
         e.preventDefault();
@@ -2270,35 +4582,31 @@ function initResizers() {
         if (!isResizingPanel) return;
 
         const deltaY = e.clientY - panelStartY;
-        let newRequestHeight = requestStartHeight + deltaY;
-        let newResponseHeight = responseStartHeight - deltaY;
-
-        if (newRequestHeight < minRequestHeight) {
-            const diff = minRequestHeight - newRequestHeight;
-            newRequestHeight = minRequestHeight;
-            newResponseHeight -= diff;
-        }
-
-        if (newResponseHeight < minResponseHeight) {
-            const diff = minResponseHeight - newResponseHeight;
-            newResponseHeight = minResponseHeight;
-            newRequestHeight -= diff;
-        }
-
-        if (newRequestHeight < minRequestHeight || newResponseHeight < minResponseHeight) {
-            return;
-        }
-
-        requestBuilder.style.flex = 'none';
-        requestBuilder.style.height = `${newRequestHeight}px`;
-        responsePanel.style.flex = 'none';
-        responsePanel.style.height = `${newResponseHeight}px`;
+        const { requestHeight, responseHeight } = clampPanelHeights(requestStartHeight + deltaY);
+        applyPanelHeights(requestHeight, responseHeight);
     });
     
-    document.addEventListener('mouseup', () => {
+    function stopPanelResize() {
         isResizingPanel = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+    }
+
+    document.addEventListener('mouseup', stopPanelResize);
+    window.addEventListener('mouseup', stopPanelResize);
+    window.addEventListener('blur', stopPanelResize);
+
+    window.addEventListener('resize', () => {
+        if (!requestBuilder.style.height || !responsePanel.style.height) return;
+        minRequestHeight = getRequestBuilderMinHeight();
+        minResponseHeight = getResponsePanelMinHeight();
+        panelTotalHeight = requestBuilder.getBoundingClientRect().height + responsePanel.getBoundingClientRect().height;
+        const requiredMinTotal = minRequestHeight + minResponseHeight;
+        if (panelTotalHeight < requiredMinTotal) {
+            panelTotalHeight = requiredMinTotal;
+        }
+        const { requestHeight, responseHeight } = clampPanelHeights(requestBuilder.getBoundingClientRect().height);
+        applyPanelHeights(requestHeight, responseHeight);
     });
 }
 
