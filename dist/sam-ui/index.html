@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAM 抠图工具</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🖼️ SAM 抠图工具</h1>
+            <p>基于 Segment Anything Model 的智能抠图</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-btn active" data-tab="single">单张抠图</button>
+            <button class="tab-btn" data-tab="interactive">交互式抠图</button>
+            <button class="tab-btn" data-tab="batch">批量处理</button>
+            <button class="tab-btn" data-tab="tasks">任务列表</button>
+            <button class="tab-btn" data-tab="settings">设置</button>
+        </nav>
+
+        <!-- 单张抠图 -->
+        <section id="single" class="tab-content active">
+            <div class="panel">
+                <div class="upload-area" id="single-upload">
+                    <div class="upload-icon">📤</div>
+                    <p>点击或拖拽上传图片</p>
+                    <input type="file" id="single-file" accept="image/*" hidden>
+                </div>
+                
+                <div class="preview-area" id="single-preview" style="display: none;">
+                    <div class="image-container">
+                        <div class="image-box">
+                            <h3>原图</h3>
+                            <img id="single-original" alt="原图" title="点击放大预览">
+                        </div>
+                        <div class="image-box">
+                            <h3>结果</h3>
+                            <img id="single-result" alt="结果" title="点击放大预览">
+                        </div>
+                    </div>
+                    <div class="single-options">
+                        <div class="single-options-title">自动抠图参数</div>
+                        <div class="single-options-grid">
+                            <div class="input-group">
+                                <label>
+                                    <span class="option-label">
+                                        分割策略
+                                        <span class="option-tip" data-tip="中心点引导适合主体在中间；自动生成候选会在整图搜索多个候选区域。">?</span>
+                                    </span>
+                                </label>
+                                <select id="single-auto-method">
+                                    <option value="center_point" selected>中心点引导（推荐）</option>
+                                    <option value="auto_generator">自动生成候选</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>
+                                    <span class="option-label">
+                                        候选选择
+                                        <span class="option-tip" data-tip="最高分更保守干净；最大区域更不容易漏主体。">?</span>
+                                    </span>
+                                </label>
+                                <select id="single-select-mode">
+                                    <option value="best_score" selected>最高分</option>
+                                    <option value="largest_area">最大区域</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group generator-only">
+                                <label>
+                                    <span class="option-label">
+                                        采样密度 points_per_side: <span id="single-points-per-side-value">32</span>
+                                        <span class="option-tip" data-tip="越大越细致但更慢；越小越快但可能漏掉小细节。">?</span>
+                                    </span>
+                                </label>
+                                <input type="range" id="single-points-per-side" min="8" max="96" step="4" value="32">
+                            </div>
+                            <div class="input-group generator-only">
+                                <label>
+                                    <span class="option-label">
+                                        预测 IoU 阈值: <span id="single-pred-iou-value">0.86</span>
+                                        <span class="option-tip" data-tip="越高越严格，结果更干净但可能漏细节；越低会保留更多候选。">?</span>
+                                    </span>
+                                </label>
+                                <input type="range" id="single-pred-iou" min="0.10" max="0.99" step="0.01" value="0.86">
+                            </div>
+
+                            <div class="input-group generator-only">
+                                <label>
+                                    <span class="option-label">
+                                        稳定性阈值: <span id="single-stability-value">0.92</span>
+                                        <span class="option-tip" data-tip="越高边界更稳定但更保守；越低更激进，可能保留更多发光边缘。">?</span>
+                                    </span>
+                                </label>
+                                <input type="range" id="single-stability" min="0.10" max="0.99" step="0.01" value="0.92">
+                            </div>
+                            <div class="input-group generator-only">
+                                <label>
+                                    <span class="option-label">
+                                        最小区域像素
+                                        <span class="option-tip" data-tip="用于过滤碎片。数值越大越容易丢小零件，建议细节多时调低到 0~50。">?</span>
+                                    </span>
+                                </label>
+                                <input type="number" id="single-min-mask-area" min="0" max="100000" step="10" value="120">
+                            </div>
+
+                            <div class="input-group">
+                                <label>
+                                    <span class="option-label">
+                                        边缘平滑半径: <span id="single-smooth-radius-value">1.2</span>
+                                        <span class="option-tip" data-tip="增大会让边缘更柔和，但可能吃掉细线。建议 0.6~1.5。">?</span>
+                                    </span>
+                                </label>
+                                <input type="range" id="single-smooth-radius" min="0" max="12" step="0.1" value="1.2">
+                            </div>
+                            <div class="input-group">
+                                <label>
+                                    <span class="option-label">
+                                        透明阈值: <span id="single-alpha-threshold-value">12</span>
+                                        <span class="option-tip" data-tip="越高越容易清理灰边，但也更容易丢弱发光细节；细节丢失时请调低。">?</span>
+                                    </span>
+                                </label>
+                                <input type="range" id="single-alpha-threshold" min="0" max="200" step="1" value="12">
+                            </div>
+                        </div>
+                        <div class="single-options-hint">效果不好时，优先尝试把“分割策略”切到“自动生成候选”，并把“候选选择”改为“最大区域”。</div>
+                    </div>
+                    <div class="actions">
+                        <button id="single-process" class="btn-primary">🚀 自动抠图</button>
+                        <button id="single-save" class="btn-secondary" disabled>💾 保存结果</button>
+                        <button id="single-clear" class="btn-tertiary">🗑️ 清除</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 交互式抠图 -->
+        <section id="interactive" class="tab-content">
+            <div class="panel">
+                <div class="upload-area" id="interactive-upload">
+                    <div class="upload-icon">📤</div>
+                    <p>点击或拖拽上传图片</p>
+                    <input type="file" id="interactive-file" accept="image/*" hidden>
+                </div>
+                
+                <div class="preview-area" id="interactive-preview" style="display: none;">
+                    <div class="toolbar">
+                        <div class="tool-group">
+                            <button id="tool-fg" class="tool-btn active" title="左键 - 选择前景">
+                                <span class="color-dot fg"></span> 前景 (左键)
+                            </button>
+                            <button id="tool-bg" class="tool-btn" title="右键 - 选择背景">
+                                <span class="color-dot bg"></span> 背景 (右键)
+                            </button>
+                        </div>
+                        <div class="tool-group">
+                            <button id="tool-undo" class="tool-btn">↩️ 撤销</button>
+                            <button id="tool-clear" class="tool-btn">🗑️ 清空</button>
+                            <button id="interactive-open-preview" class="tool-btn">🔍 放大标注</button>
+                        </div>
+                    </div>
+                    
+                    <div id="interactive-canvas-host">
+                        <div class="canvas-container">
+                            <canvas id="interactive-canvas"></canvas>
+                            <div class="canvas-overlay">
+                                <div class="zoom-controls">
+                                    <button id="zoom-in">+</button>
+                                    <span id="zoom-level">100%</span>
+                                    <button id="zoom-out">-</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="interactive-options">
+                        <div class="interactive-options-title">交互式参数</div>
+                        <div class="interactive-options-grid">
+                            <div class="input-group">
+                                <label>候选选择</label>
+                                <select id="interactive-select-mode">
+                                    <option value="best_score" selected>最高分（默认）</option>
+                                    <option value="largest_area">最大区域（保留更多）</option>
+                                    <option value="smallest_area">最小区域（尖端细节）</option>
+                                </select>
+                            </div>
+                            <div class="input-group">
+                                <label>局部放大倍率: <span id="interactive-local-zoom-value">180%</span></label>
+                                <input type="range" id="interactive-local-zoom" min="1" max="4" step="0.1" value="1.8">
+                            </div>
+                            <div class="input-group">
+                                <label>边缘平滑: <span id="interactive-smooth-radius-value">0.6</span></label>
+                                <input type="range" id="interactive-smooth-radius" min="0" max="12" step="0.1" value="0.6">
+                            </div>
+                            <div class="input-group">
+                                <label>透明阈值: <span id="interactive-alpha-threshold-value">6</span></label>
+                                <input type="range" id="interactive-alpha-threshold" min="0" max="200" step="1" value="6">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="actions">
+                        <button id="interactive-process" class="btn-primary">🚀 应用抠图</button>
+                        <button id="interactive-save" class="btn-secondary" disabled>💾 保存结果</button>
+                    </div>
+                    
+                    <div class="instructions">
+                        <h4>使用说明：</h4>
+                        <ul>
+                            <li><span class="fg-dot"></span> <strong>左键点击</strong> - 选择要保留的前景区域</li>
+                            <li><span class="bg-dot"></span> <strong>右键点击</strong> - 选择要去除的背景区域</li>
+                            <li>可以添加多个点来优化选择</li>
+                            <li>点击"应用抠图"查看结果</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 批量处理 -->
+        <section id="batch" class="tab-content">
+            <div class="panel">
+                <div class="batch-config">
+                    <div class="input-group">
+                        <label>输入文件夹：</label>
+                        <div class="file-input">
+                            <input type="text" id="batch-input" readonly placeholder="选择包含图片的文件夹">
+                            <button id="batch-input-btn" class="btn-secondary">📁 浏览</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>输出文件夹：</label>
+                        <div class="file-input">
+                            <input type="text" id="batch-output" readonly placeholder="选择输出文件夹">
+                            <button id="batch-output-btn" class="btn-secondary">📁 浏览</button>
+                        </div>
+                    </div>
+                    <button id="batch-start" class="btn-primary" disabled>🚀 开始批量处理</button>
+                </div>
+                
+                <div class="batch-progress" id="batch-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-info">
+                        <span id="progress-text">0/0</span>
+                        <span id="progress-percent">0%</span>
+                    </div>
+                    <div class="progress-log" id="progress-log"></div>
+                </div>
+                
+                <div class="batch-results" id="batch-results" style="display: none;">
+                    <h3>处理结果</h3>
+                    <div class="results-grid" id="results-grid"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 任务列表 -->
+        <section id="tasks" class="tab-content">
+            <div class="panel">
+                <div class="tasks-header">
+                    <div>
+                        <h2>任务列表</h2>
+                        <p class="tasks-subtitle">所有抠图请求会先进入队列，按并行数自动执行</p>
+                    </div>
+                    <div class="tasks-summary">
+                        <span>总数 <strong id="task-count">0</strong></span>
+                        <span>运行中 <strong id="task-running-count">0</strong></span>
+                        <span>排队中 <strong id="task-queued-count">0</strong></span>
+                    </div>
+                    <button id="task-clear-finished" class="btn-tertiary">清理已完成</button>
+                </div>
+                <div id="task-empty" class="empty-state">暂无任务，去“单张抠图”或“交互式抠图”创建任务</div>
+                <div id="task-list" class="task-list"></div>
+            </div>
+        </section>
+
+        <!-- 设置 -->
+        <section id="settings" class="tab-content">
+            <div class="panel">
+                <h2>⚙️ 设置</h2>
+                
+                <!-- 模型下载 -->
+                <div class="setting-group">
+                    <h3>📦 SAM 模型下载</h3>
+                    <div class="model-list" id="model-list">
+                        <!-- 动态生成模型列表 -->
+                    </div>
+                    
+                    <div class="download-progress-container" id="download-progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="model-download-progress"></div>
+                        </div>
+                        <div class="progress-info">
+                            <span id="download-status">准备下载...</span>
+                            <span id="download-speed"></span>
+                            <span id="download-eta"></span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 代理设置 -->
+                <div class="setting-group">
+                    <h3>🌐 网络代理</h3>
+                    <div class="input-group">
+                        <label>
+                            <input type="checkbox" id="proxy-enabled"> 使用代理
+                        </label>
+                    </div>
+                    <div class="input-group">
+                        <label>代理地址：</label>
+                        <input type="text" id="proxy-url" placeholder="http://127.0.0.1:7890">
+                    </div>
+                    <div class="input-group">
+                        <label>用户名（可选）：</label>
+                        <input type="text" id="proxy-username" placeholder="可选">
+                    </div>
+                    <div class="input-group">
+                        <label>密码（可选）：</label>
+                        <input type="password" id="proxy-password" placeholder="可选">
+                    </div>
+                    <div class="actions">
+                        <button id="proxy-test" class="btn-secondary">🧪 测试连接</button>
+                        <button id="proxy-save" class="btn-primary">💾 保存配置</button>
+                    </div>
+                    <div id="proxy-test-result" class="test-result"></div>
+                </div>
+                
+                <div class="setting-group">
+                    <h3>SAM 模型</h3>
+                    <div class="input-group">
+                        <label>模型路径：</label>
+                        <div class="file-input">
+                            <input type="text" id="model-path" readonly 
+                                   value="/Users/jialeiting/models/sam/sam_vit_h_4b8939.pth">
+                            <button id="model-path-btn" class="btn-secondary">📁 浏览</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Python 路径：</label>
+                        <div class="file-input">
+                            <input type="text" id="python-path" readonly placeholder="自动检测 Python 路径">
+                            <button id="python-path-btn" class="btn-secondary">📁 浏览</button>
+                            <button id="python-path-save" class="btn-primary">💾 保存</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>最大并行任务数（1-8）：</label>
+                        <input type="number" id="task-max-parallel" min="1" max="8" step="1" value="1">
+                    </div>
+                    <div class="actions settings-inline-actions">
+                        <button id="python-deps-check" class="btn-secondary">🧩 检测 Python 依赖</button>
+                    </div>
+                    <div id="python-deps-result" class="test-result"></div>
+                    <div class="model-info" id="model-info">
+                        <p>状态：<span class="status" id="model-status">未加载</span></p>
+                        <button id="model-load" class="btn-primary">🔄 加载模型</button>
+                    </div>
+                </div>
+                
+                <div class="setting-group">
+                    <h3>输出设置</h3>
+                    <div class="input-group">
+                        <label>输出格式：</label>
+                        <select id="output-format">
+                            <option value="png">PNG (透明背景)</option>
+                            <option value="jpg">JPG (白色背景)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>输出质量：</label>
+                        <input type="range" id="output-quality" min="1" max="100" value="95">
+                        <span id="quality-value">95%</span>
+                    </div>
+                </div>
+                
+                <div class="setting-group">
+                    <h3>关于</h3>
+                    <div class="about-info">
+                        <p><strong>SAM 抠图工具</strong> v1.0.0</p>
+                        <p>基于 Meta AI 的 Segment Anything Model</p>
+                        <p>使用 Tauri + Rust 构建</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 加载遮罩 -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <p id="loading-text">处理中...</p>
+    </div>
+
+    <div class="image-preview-modal" id="imagePreviewModal" style="display: none;">
+        <div class="image-preview-dialog">
+            <div class="image-preview-header">
+                <div class="image-preview-tabs">
+                    <button type="button" class="preview-tab active" id="previewTabOriginal">原图</button>
+                    <button type="button" class="preview-tab" id="previewTabResult">结果</button>
+                </div>
+                <div class="image-preview-tools">
+                    <button type="button" class="preview-tool-btn" id="previewZoomOut">-</button>
+                    <span class="preview-zoom-value" id="previewZoomValue">100%</span>
+                    <button type="button" class="preview-tool-btn" id="previewZoomIn">+</button>
+                    <button type="button" class="preview-tool-btn" id="previewZoomReset">重置</button>
+                    <button type="button" class="preview-tool-btn danger" id="previewCloseBtn">关闭</button>
+                </div>
+            </div>
+            <div class="image-preview-stage" id="imagePreviewStage">
+                <img id="imagePreviewImage" alt="放大预览">
+            </div>
+            <div class="image-preview-hint">支持鼠标滚轮缩放和拖动查看细节</div>
+        </div>
+    </div>
+
+    <div class="image-preview-modal interactive-editor-modal" id="interactiveEditorModal" style="display: none;">
+        <div class="image-preview-dialog interactive-editor-dialog">
+            <div class="image-preview-header">
+                <div class="interactive-editor-title">交互式标注预览</div>
+                <div class="image-preview-tools">
+                    <button type="button" class="preview-tool-btn danger" id="interactiveEditorCloseBtn">关闭</button>
+                </div>
+            </div>
+            <div class="interactive-editor-stage" id="interactiveEditorStage"></div>
+            <div class="image-preview-hint">支持滚轮缩放、按住拖动画布，左键前景 / 右键背景打点</div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

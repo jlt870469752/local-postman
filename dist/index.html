@@ -19,6 +19,371 @@
             overflow: hidden;
         }
 
+        .feature-home {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 32px;
+            background:
+                radial-gradient(circle at 18% 16%, rgba(255, 108, 55, 0.2), rgba(255, 108, 55, 0) 40%),
+                radial-gradient(circle at 82% 84%, rgba(59, 130, 246, 0.18), rgba(59, 130, 246, 0) 42%),
+                #f6f7fb;
+            z-index: 24000;
+        }
+
+        .feature-home-shell {
+            width: min(980px, 100%);
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid #e7e7e7;
+            border-radius: 20px;
+            box-shadow: 0 18px 40px rgba(23, 27, 39, 0.12);
+            padding: 26px 26px 28px;
+            backdrop-filter: blur(8px);
+        }
+
+        .feature-home-title {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+            color: #23262f;
+            margin-bottom: 8px;
+        }
+
+        .feature-home-desc {
+            color: #606571;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .feature-card {
+            border: 1px solid #e4e7ef;
+            border-radius: 14px;
+            background: #fff;
+            padding: 16px;
+            cursor: pointer;
+            transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
+            text-align: left;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 20px rgba(24, 29, 45, 0.08);
+            border-color: #d7dce7;
+        }
+
+        .feature-card-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+            color: #2c2f38;
+            background: #f3f4f8;
+        }
+
+        .feature-card-icon svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .feature-card-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #23262f;
+            margin-bottom: 5px;
+        }
+
+        .feature-card-desc {
+            font-size: 12px;
+            line-height: 1.55;
+            color: #6a7080;
+        }
+
+        .feature-back-btn {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 23000;
+            height: 34px;
+            border: 1px solid #dcdde3;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.95);
+            color: #363b46;
+            padding: 0 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .feature-back-btn:hover {
+            border-color: #ff6c37;
+            color: #ff6c37;
+        }
+
+        .sam-feature-view {
+            height: 100vh;
+            width: 100vw;
+            background: #fff;
+        }
+
+        .sam-feature-frame {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #fff;
+        }
+
+        .lama-feature-view {
+            height: 100vh;
+            width: 100vw;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .lama-feature-topbar {
+            height: 44px;
+            min-height: 44px;
+            border-bottom: 1px solid #d9dce4;
+            background: #f8f9fc;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 0 12px;
+        }
+
+        .lama-feature-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #262b36;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .lama-feature-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid #d7dde8;
+            background: #f4f7fc;
+            font-size: 12px;
+            color: #4a5a72;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .lama-feature-status.running {
+            border-color: #abdcbc;
+            background: #eafaf0;
+            color: #12673b;
+        }
+
+        .lama-feature-status.error {
+            border-color: #efc2c9;
+            background: #fff3f5;
+            color: #9a1f31;
+        }
+
+        .lama-feature-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .lama-feature-btn {
+            height: 30px;
+            border: 1px solid #d4d9e3;
+            border-radius: 8px;
+            padding: 0 10px;
+            background: #fff;
+            color: #303a4b;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .lama-feature-btn:hover {
+            border-color: #ff6c37;
+            color: #ff6c37;
+        }
+
+        .lama-feature-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .lama-port-wrap {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 30px;
+            padding: 0 8px;
+            border: 1px solid #d4d9e3;
+            border-radius: 8px;
+            background: #fff;
+            font-size: 12px;
+            color: #3f4a5c;
+            font-weight: 600;
+        }
+
+        .lama-port-input {
+            width: 72px;
+            height: 22px;
+            border: 1px solid #d4d9e3;
+            border-radius: 6px;
+            padding: 0 6px;
+            font-size: 12px;
+            color: #2f3a4a;
+            background: #fff;
+        }
+
+        .lama-port-input:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .lama-feature-content {
+            flex: 1;
+            min-height: 0;
+            position: relative;
+            background: #fff;
+        }
+
+        .lama-feature-frame {
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: #fff;
+        }
+
+        .lama-feature-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #5d6b80;
+            gap: 10px;
+            font-size: 13px;
+            background: linear-gradient(180deg, #f9fbff 0%, #f5f7fc 100%);
+            text-align: center;
+            padding: 24px;
+        }
+
+        .lama-feature-empty.hidden {
+            display: none;
+        }
+
+        .lama-doc-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 26000;
+            background: rgba(15, 18, 27, 0.48);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .lama-doc-dialog {
+            width: min(820px, 100%);
+            max-height: min(86vh, 780px);
+            overflow: auto;
+            border-radius: 12px;
+            background: #ffffff;
+            border: 1px solid #d9e0ec;
+            box-shadow: 0 16px 40px rgba(10, 18, 32, 0.22);
+        }
+
+        .lama-doc-header {
+            height: 46px;
+            min-height: 46px;
+            border-bottom: 1px solid #e1e6ef;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 14px;
+            background: #f8faff;
+        }
+
+        .lama-doc-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #233149;
+        }
+
+        .lama-doc-close {
+            width: 28px;
+            height: 28px;
+            border: 1px solid #d7deea;
+            border-radius: 8px;
+            background: #fff;
+            color: #49566d;
+            font-size: 16px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .lama-doc-close:hover {
+            border-color: #ff6c37;
+            color: #ff6c37;
+        }
+
+        .lama-doc-body {
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .lama-doc-item {
+            border: 1px solid #e2e8f3;
+            border-radius: 10px;
+            background: #fbfcff;
+            padding: 10px;
+        }
+
+        .lama-doc-item-title {
+            font-size: 12px;
+            color: #4e5d78;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+
+        .lama-doc-code {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 12px;
+            color: #1f2d44;
+            background: #f2f5fb;
+            border: 1px solid #dde5f2;
+            border-radius: 8px;
+            padding: 9px 10px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
         .workspace-topbar {
             height: 36px;
             flex-shrink: 0;
@@ -226,6 +591,152 @@
 
         .icon-item-bottom {
             margin-top: auto;
+        }
+
+        .right-shell {
+            display: flex;
+            flex: 0 0 auto;
+            min-height: 0;
+            background: #f6f6f6;
+            border-left: 1px solid #e4e4e4;
+        }
+
+        .right-shell.collapsed .right-sidebar-panel {
+            width: 0 !important;
+            border-left-color: transparent;
+        }
+
+        .right-icon-sidebar {
+            width: 58px;
+            background: #f6f6f6;
+            border-left: 1px solid #e4e4e4;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            padding: 4px;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .right-icon-item {
+            width: 100%;
+            min-height: 48px;
+            border: none;
+            background: transparent;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 7px;
+            color: #5f5f5f;
+            transition: all 0.2s;
+        }
+
+        .right-icon-item:hover {
+            background: #ececec;
+            color: #2c2c2c;
+        }
+
+        .right-icon-item.active {
+            background: #e8e8e8;
+            color: #2a2a2a;
+        }
+
+        .right-icon-glyph {
+            width: 22px;
+            height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .right-icon-glyph svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .right-sidebar-panel {
+            width: 0;
+            min-width: 0;
+            overflow: hidden;
+            transition: width 0.2s, border-color 0.2s;
+            background: #fff;
+            border-left: 1px solid #e4e4e4;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .right-sidebar-panel-inner {
+            min-width: 260px;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .right-sidebar-header {
+            height: 36px;
+            flex: 0 0 36px;
+            border-bottom: 1px solid #e7e7e7;
+            background: #fafafa;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 0 10px;
+        }
+
+        .right-sidebar-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #3a3a3a;
+            letter-spacing: 0.01em;
+        }
+
+        .right-sidebar-btn {
+            border: 1px solid #dbdbdb;
+            background: #fff;
+            color: #4f4f4f;
+            font-size: 11px;
+            border-radius: 6px;
+            height: 24px;
+            padding: 0 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .right-sidebar-btn:hover {
+            border-color: #ff6c37;
+            color: #ff6c37;
+        }
+
+        .right-sidebar-content {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            background: #fff;
+            padding: 10px;
+        }
+
+        .right-curl-preview {
+            margin: 0;
+            min-height: 100%;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.55;
+            color: #2f2f2f;
+            background: #f7f7f7;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
+            padding: 10px 12px;
         }
         
         /* 左侧内容面板 */
@@ -719,6 +1230,12 @@
         
         .resizer:hover {
             background: #ff6c37;
+        }
+
+        .resizer.resizer-right {
+            height: 100%;
+            margin-top: 0;
+            align-self: stretch;
         }
         
         /* 主内容区 */
@@ -2249,10 +2766,128 @@
             background: #ff6c37;
         }
     </style>
-  <script type="module" crossorigin src="/assets/index-B-19PIsS.js"></script>
+  <script type="module" crossorigin src="/assets/index-BGNYC9Hk.js"></script>
 </head>
 <body>
-    <div class="container">
+    <div class="feature-home" id="featureHome">
+        <div class="feature-home-shell">
+            <h1 class="feature-home-title">选择功能</h1>
+            <p class="feature-home-desc">一个应用内使用 API 调试和 SAM 抠图能力</p>
+            <div class="feature-grid">
+                <button class="feature-card" type="button" onclick="selectFeature('postman')">
+                    <span class="feature-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="8"></circle>
+                            <path d="M12 7v5l3 2"></path>
+                        </svg>
+                    </span>
+                    <div class="feature-card-title">Postman</div>
+                    <div class="feature-card-desc">请求调试、集合管理、历史记录、结果预览。</div>
+                </button>
+                <button class="feature-card" type="button" onclick="selectFeature('sam')">
+                    <span class="feature-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M8 6.5 4 12l4 5.5"></path>
+                            <path d="M16 6.5 20 12l-4 5.5"></path>
+                            <path d="M13.8 5 10.2 19"></path>
+                        </svg>
+                    </span>
+                    <div class="feature-card-title">SAM 抠图</div>
+                    <div class="feature-card-desc">单图/交互/批量抠图，模型下载与代理设置。</div>
+                </button>
+                <button class="feature-card" type="button" onclick="selectFeature('lama')">
+                    <span class="feature-card-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M4 7h16"></path>
+                            <path d="M7 7v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7"></path>
+                            <path d="M10 11h4"></path>
+                            <path d="M12 9v4"></path>
+                        </svg>
+                    </span>
+                    <div class="feature-card-title">去水印</div>
+                    <div class="feature-card-desc">内置启动 lama-cleaner 本地服务，直接在应用内处理图片。</div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <button class="feature-back-btn hidden" id="featureBackBtn" type="button" onclick="backToFeatureHome()">返回首页</button>
+
+    <div class="sam-feature-view hidden" id="samFeatureView">
+        <iframe class="sam-feature-frame" id="samFeatureFrame" src="/sam-ui/index.html" title="SAM Feature"></iframe>
+    </div>
+
+    <div class="lama-feature-view hidden" id="lamaFeatureView">
+        <div class="lama-feature-topbar">
+            <div class="lama-feature-title">
+                <span>lama-cleaner 去水印</span>
+                <span class="lama-feature-status" id="lamaFeatureStatus">服务未启动</span>
+                <span class="lama-feature-status" id="lamaModelStatus">模型状态未知</span>
+            </div>
+            <div class="lama-feature-actions">
+                <label class="lama-port-wrap" for="lamaPortInput">
+                    Port
+                    <input class="lama-port-input" id="lamaPortInput" type="number" min="1" max="65535" step="1" value="8088" />
+                </label>
+                <button class="lama-feature-btn" id="lamaApplyPortBtn" type="button" onclick="applyLamaPortConfig()">应用端口</button>
+                <button class="lama-feature-btn" id="lamaDocBtn" type="button" onclick="openLamaCommandDoc()">命令文档</button>
+                <button class="lama-feature-btn" id="lamaInstallBtn" type="button" onclick="installLamaCleanerService()">安装服务</button>
+                <button class="lama-feature-btn" id="lamaUninstallBtn" type="button" onclick="uninstallLamaCleanerService()">卸载服务</button>
+                <button class="lama-feature-btn" id="lamaStartBtn" type="button" onclick="startLamaCleanerService()">启动服务</button>
+                <button class="lama-feature-btn" id="lamaStopBtn" type="button" onclick="stopLamaCleanerService()">停止服务</button>
+                <button class="lama-feature-btn" id="lamaReloadBtn" type="button" onclick="reloadLamaCleanerFrame()">刷新页面</button>
+                <button class="lama-feature-btn" id="lamaRefreshStatusBtn" type="button" onclick="refreshLamaCleanerStatus()">刷新状态</button>
+            </div>
+        </div>
+        <div class="lama-feature-content">
+            <iframe class="lama-feature-frame" id="lamaFeatureFrame" src="about:blank" title="Lama Cleaner"></iframe>
+            <div class="lama-feature-empty" id="lamaFeatureEmpty">
+                <div>lama-cleaner 服务未就绪</div>
+                <div>未安装时先点“安装服务”；已安装后点“启动服务”，命令等价于：<code>lama-cleaner --device=cpu --port=8088</code></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="lama-doc-modal hidden" id="lamaDocModal" onclick="closeLamaCommandDoc()">
+        <div class="lama-doc-dialog" onclick="event.stopPropagation()">
+            <div class="lama-doc-header">
+                <div class="lama-doc-title">lama-cleaner 服务命令文档</div>
+                <button class="lama-doc-close" type="button" onclick="closeLamaCommandDoc()">×</button>
+            </div>
+            <div class="lama-doc-body">
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">安装服务</div>
+                    <div class="lama-doc-code" id="lamaDocInstallCmd"></div>
+                </div>
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">卸载服务</div>
+                    <div class="lama-doc-code" id="lamaDocUninstallCmd"></div>
+                </div>
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">启动服务（当前配置）</div>
+                    <div class="lama-doc-code" id="lamaDocStartCmd"></div>
+                </div>
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">探活检查</div>
+                    <div class="lama-doc-code" id="lamaDocHealthCmd"></div>
+                </div>
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">模型检查（big-lama.pt）</div>
+                    <div class="lama-doc-code" id="lamaDocModelCheckCmd"></div>
+                </div>
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">模型下载前置依赖修复</div>
+                    <div class="lama-doc-code" id="lamaDocModelFixCmd"></div>
+                </div>
+                <div class="lama-doc-item">
+                    <div class="lama-doc-item-title">说明</div>
+                    <div class="lama-doc-code">从去水印页面返回首页时，应用会自动停止由应用内启动的 lama-cleaner 进程。</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container hidden" id="postmanApp">
         <div class="left-shell">
             <div class="workspace-topbar">
                 <div class="workspace-title-wrap">
@@ -2772,6 +3407,33 @@
                 </div>
                 <div class="response-content hidden" id="responseHeaders"></div>
                 <div class="response-content hidden" id="responseCookies"></div>
+            </div>
+        </div>
+
+        <div class="resizer resizer-right" id="rightSidebarResizer"></div>
+
+        <div class="right-shell collapsed" id="rightShell">
+            <div class="right-sidebar-panel" id="rightSidebarPanel" style="width: 0px;">
+                <div class="right-sidebar-panel-inner">
+                    <div class="right-sidebar-header">
+                        <span class="right-sidebar-title">Current Request cURL</span>
+                        <button class="right-sidebar-btn" type="button" onclick="copyCurrentRequestCurl()">Copy</button>
+                    </div>
+                    <div class="right-sidebar-content" id="rightCurlPanel">
+                        <pre class="right-curl-preview" id="rightCurlPreview">No active request tab.</pre>
+                    </div>
+                </div>
+            </div>
+            <div class="right-icon-sidebar" id="rightIconSidebar">
+                <button class="right-icon-item active" type="button" title="cURL" onclick="switchRightSidebar('curl', event)">
+                    <span class="right-icon-glyph" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M8 6.5 4 12l4 5.5"></path>
+                            <path d="M16 6.5 20 12l-4 5.5"></path>
+                            <path d="M13.8 5 10.2 19"></path>
+                        </svg>
+                    </span>
+                </button>
             </div>
         </div>
     </div>

@@ -1,4 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
 
 // ==================== 全局状态 ====================
 let currentRequest = {
@@ -58,6 +60,168 @@ let pendingCollectionPointerDrag = null;
 let activeCollectionPointerDrag = null;
 let pointerDragHoverInfo = null;
 let collectionPointerDragSuppressClickUntil = 0;
+let activeRightSidebarTab = 'curl';
+let activeFeature = 'home';
+let lamaServiceActionInProgress = false;
+let lamaLastKnownPort = 8088;
+let lamaLastKnownExecutablePath = 'lama-cleaner';
+let lamaLastKnownDevice = 'cpu';
+let lamaLastKnownPythonPath = 'python3';
+let lamaLastKnownModelPath = '~/.cache/torch/hub/checkpoints/big-lama.pt';
+let lamaLastKnownModelDownloaded = false;
+let lamaLastKnownModelSizeBytes = 0;
+const SAM_BRIDGE_MESSAGE_FLAG = '__SAM_TAURI_BRIDGE_MESSAGE__';
+const samBridgeEventListeners = new Map();
+
+// Expose a stable bridge for iframe-based SAM UI.
+window.__SAM_TAURI_BRIDGE__ = {
+    core: { invoke, convertFileSrc },
+    event: { listen },
+    dialog: {
+        open: dialogOpen,
+        save: dialogSave
+    }
+};
+
+function getSamFeatureFrameWindow() {
+    const frame = document.getElementById('samFeatureFrame');
+    return frame?.contentWindow || null;
+}
+
+function getSamDialogBridge() {
+    return window.__SAM_TAURI_BRIDGE__?.dialog || null;
+}
+
+function postSamBridgeMessage(targetWindow, message) {
+    if (!targetWindow || typeof targetWindow.postMessage !== 'function') return;
+    targetWindow.postMessage({
+        [SAM_BRIDGE_MESSAGE_FLAG]: true,
+        ...message
+    }, '*');
+}
+
+async function cleanupSamBridgeListener(listenerId) {
+    const unlisten = samBridgeEventListeners.get(listenerId);
+    if (!unlisten) return;
+    samBridgeEventListeners.delete(listenerId);
+    try {
+        await unlisten();
+    } catch (error) {
+        console.warn('[sam-bridge] failed to cleanup listener', error);
+    }
+}
+
+async function handleSamBridgeMessage(event) {
+    const data = event?.data;
+    if (!data || data[SAM_BRIDGE_MESSAGE_FLAG] !== true || data.direction !== 'request') {
+        return;
+    }
+
+    const sourceWindow = event.source;
+    if (!sourceWindow || typeof sourceWindow.postMessage !== 'function') {
+        return;
+    }
+
+    const frameWindow = getSamFeatureFrameWindow();
+    if (frameWindow && sourceWindow !== frameWindow) {
+        return;
+    }
+
+    const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+    const action = typeof data.action === 'string' ? data.action : '';
+    if (!requestId || !action) {
+        return;
+    }
+
+    try {
+        let result = null;
+        const payload = data.payload || {};
+
+        if (action === 'ping') {
+            const dialog = getSamDialogBridge();
+            result = {
+                ready: true,
+                hasDialog: !!dialog,
+                hasEvent: true
+            };
+        } else if (action === 'invoke') {
+            if (!payload.cmd || typeof payload.cmd !== 'string') {
+                throw new Error('Missing invoke command');
+            }
+            result = await invoke(payload.cmd, payload.args || {});
+        } else if (action === 'convert-file-src') {
+            const filePath = typeof payload.path === 'string' ? payload.path.trim() : '';
+            if (!filePath) {
+                throw new Error('Missing file path');
+            }
+            result = convertFileSrc(filePath);
+        } else if (action === 'dialog-open') {
+            const dialog = getSamDialogBridge();
+            if (!dialog || typeof dialog.open !== 'function') {
+                throw new Error('Tauri dialog not available');
+            }
+            result = await dialog.open(payload.options || {});
+        } else if (action === 'dialog-save') {
+            const dialog = getSamDialogBridge();
+            if (!dialog || typeof dialog.save !== 'function') {
+                throw new Error('Tauri dialog not available');
+            }
+            result = await dialog.save(payload.options || {});
+        } else if (action === 'listen') {
+            const eventName = payload.eventName || payload.event;
+            if (!eventName || typeof eventName !== 'string') {
+                throw new Error('Missing event name');
+            }
+
+            const listenerId = `sam-listener-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const unlisten = await listen(eventName, (tauriEvent) => {
+                postSamBridgeMessage(sourceWindow, {
+                    direction: 'event',
+                    listenerId,
+                    eventName,
+                    payload: tauriEvent?.payload ?? null
+                });
+            });
+            samBridgeEventListeners.set(listenerId, unlisten);
+            result = { listenerId };
+        } else if (action === 'unlisten') {
+            const listenerId = typeof payload.listenerId === 'string' ? payload.listenerId : '';
+            if (!listenerId) {
+                throw new Error('Missing listenerId');
+            }
+            await cleanupSamBridgeListener(listenerId);
+            result = { removed: true };
+        } else {
+            throw new Error(`Unsupported bridge action: ${action}`);
+        }
+
+        postSamBridgeMessage(sourceWindow, {
+            direction: 'response',
+            requestId,
+            ok: true,
+            result
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        postSamBridgeMessage(sourceWindow, {
+            direction: 'response',
+            requestId,
+            ok: false,
+            error: message
+        });
+    }
+}
+
+window.addEventListener('message', (event) => {
+    void handleSamBridgeMessage(event);
+});
+
+window.addEventListener('beforeunload', () => {
+    const listenerIds = Array.from(samBridgeEventListeners.keys());
+    listenerIds.forEach((listenerId) => {
+        void cleanupSamBridgeListener(listenerId);
+    });
+});
 
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', async () => {
@@ -205,6 +369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateBodyFormatMenuPlacement();
         }
         syncWorkspaceTopbarState();
+        syncRightSidebarState();
         if (activeCollectionMenuState) {
             hideCollectionItemMenu();
         }
@@ -238,6 +403,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     syncBodyFormatPickerDisplay();
     syncWorkspaceTopbarState();
     updateSendButtonState();
+    syncRightSidebarState();
+    renderCurrentRequestCurl();
+    setFeatureView('home');
     if (ENABLE_COLLECTION_DRAG_LOG) {
         showToast(`Drag patch loaded: ${COLLECTION_DRAG_PATCH_VERSION}`);
     }
@@ -1046,6 +1214,7 @@ function updateRequestWorkspaceState() {
     }
 
     updateSendButtonState();
+    renderCurrentRequestCurl();
 }
 
 function updateRequestTabsOverflowControls() {
@@ -1231,6 +1400,7 @@ function renderRequestTabs() {
 
     renderRequestTabsDropdown();
     updateRequestWorkspaceState();
+    renderCurrentRequestCurl();
     requestAnimationFrame(() => {
         ensureActiveTabVisible();
         updateRequestTabsOverflowControls();
@@ -1333,6 +1503,7 @@ function syncCurrentRequestFromUI() {
     tab.graphqlQuery = document.getElementById('graphqlQueryEditor')?.value || '';
     tab.graphqlVariables = document.getElementById('graphqlVariablesEditor')?.value || '{}';
     currentRequest = tab;
+    renderCurrentRequestCurl();
 }
 
 function applyCurrentRequestToUI() {
@@ -1377,6 +1548,7 @@ function applyCurrentRequestToUI() {
     renderRequestTabs();
     updateRequestWorkspaceState();
     applyActiveTabResponseToUI();
+    renderCurrentRequestCurl();
 }
 
 function attachRequestMetaListeners() {
@@ -1399,6 +1571,13 @@ function attachRequestMetaListeners() {
         }
         syncCurrentRequestFromUI();
         renderRequestTabs();
+    });
+
+    urlInput.addEventListener('keydown', (evt) => {
+        if (evt.key !== 'Enter' || evt.isComposing) return;
+        if (evt.shiftKey || evt.altKey || evt.ctrlKey || evt.metaKey) return;
+        evt.preventDefault();
+        window.sendRequest();
     });
 
     nameInput.addEventListener('input', () => {
@@ -1562,6 +1741,655 @@ window.switchSidebar = function(tab, evt) {
     document.getElementById(tab + 'Panel').classList.remove('hidden');
     syncWorkspaceTopbarState();
     requestAnimationFrame(syncWorkspaceTopbarState);
+};
+
+function getLamaFeatureElements() {
+    return {
+        view: document.getElementById('lamaFeatureView'),
+        frame: document.getElementById('lamaFeatureFrame'),
+        status: document.getElementById('lamaFeatureStatus'),
+        modelStatus: document.getElementById('lamaModelStatus'),
+        empty: document.getElementById('lamaFeatureEmpty'),
+        portInput: document.getElementById('lamaPortInput'),
+        applyPortBtn: document.getElementById('lamaApplyPortBtn'),
+        installBtn: document.getElementById('lamaInstallBtn'),
+        uninstallBtn: document.getElementById('lamaUninstallBtn'),
+        startBtn: document.getElementById('lamaStartBtn'),
+        stopBtn: document.getElementById('lamaStopBtn'),
+        reloadBtn: document.getElementById('lamaReloadBtn'),
+        refreshBtn: document.getElementById('lamaRefreshStatusBtn'),
+    };
+}
+
+function normalizeLamaPort(value, fallback = 8088) {
+    const parsed = Number.parseInt(String(value ?? ''), 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 65535) {
+        return fallback;
+    }
+    return parsed;
+}
+
+function setTextContentById(id, value) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.textContent = value;
+}
+
+function formatByteSize(bytes) {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value <= 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = value;
+    let idx = 0;
+    while (size >= 1024 && idx < units.length - 1) {
+        size /= 1024;
+        idx += 1;
+    }
+    const precision = idx <= 1 ? 0 : 1;
+    return `${size.toFixed(precision)} ${units[idx]}`;
+}
+
+function renderLamaCommandDoc() {
+    const port = normalizeLamaPort(lamaLastKnownPort, 8088);
+    const execPath = lamaLastKnownExecutablePath || 'lama-cleaner';
+    const device = lamaLastKnownDevice || 'cpu';
+    const pythonPath = lamaLastKnownPythonPath || 'python3';
+    const pipPath = pythonPath.endsWith('/python')
+        ? `${pythonPath.slice(0, -'/python'.length)}/pip`
+        : pythonPath.endsWith('/python3')
+            ? `${pythonPath.slice(0, -'/python3'.length)}/pip`
+            : 'pip';
+    const installCmd = `${quoteShellArg(pythonPath)} -m pip install lama-cleaner`;
+    const uninstallCmd = `${quoteShellArg(pythonPath)} -m pip uninstall -y lama-cleaner`;
+    const startCmd = `${quoteShellArg(execPath)} --device=${device} --port=${port}`;
+    const healthCmd = `curl -I http://127.0.0.1:${port}`;
+    const modelCheckCmd = `ls -lh ${quoteShellArg(lamaLastKnownModelPath)}`;
+    const modelFixCmd = `${quoteShellArg(pipPath)} install \"huggingface_hub<0.26\" --force-reinstall`;
+
+    setTextContentById('lamaDocInstallCmd', installCmd);
+    setTextContentById('lamaDocUninstallCmd', uninstallCmd);
+    setTextContentById('lamaDocStartCmd', startCmd);
+    setTextContentById('lamaDocHealthCmd', healthCmd);
+    setTextContentById('lamaDocModelCheckCmd', modelCheckCmd);
+    setTextContentById('lamaDocModelFixCmd', modelFixCmd);
+}
+
+async function hydrateLamaCommandDocRuntime() {
+    try {
+        const [runtime, samRuntime, status] = await Promise.all([
+            invoke('get_lama_runtime_config'),
+            invoke('get_sam_runtime_config'),
+            invoke('get_lama_cleaner_status'),
+        ]);
+        lamaLastKnownPort = normalizeLamaPort(runtime?.port, lamaLastKnownPort);
+        lamaLastKnownExecutablePath =
+            runtime?.executable_path || runtime?.executablePath || lamaLastKnownExecutablePath;
+        lamaLastKnownDevice = runtime?.device || lamaLastKnownDevice;
+        lamaLastKnownPythonPath =
+            samRuntime?.python_path || samRuntime?.pythonPath || lamaLastKnownPythonPath;
+        lamaLastKnownModelPath = status?.model_path || status?.modelPath || lamaLastKnownModelPath;
+        lamaLastKnownModelDownloaded = !!(status?.model_downloaded ?? status?.modelDownloaded);
+        lamaLastKnownModelSizeBytes = Number(status?.model_size_bytes ?? status?.modelSizeBytes ?? lamaLastKnownModelSizeBytes ?? 0);
+    } catch (error) {
+        // ignore and keep last-known values
+    }
+    renderLamaCommandDoc();
+}
+
+window.openLamaCommandDoc = async function() {
+    const modal = document.getElementById('lamaDocModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    renderLamaCommandDoc();
+    await hydrateLamaCommandDocRuntime();
+};
+
+window.closeLamaCommandDoc = function() {
+    const modal = document.getElementById('lamaDocModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+};
+
+document.addEventListener('keydown', (evt) => {
+    if (evt.key !== 'Escape') return;
+    const modal = document.getElementById('lamaDocModal');
+    if (!modal || modal.classList.contains('hidden')) return;
+    evt.preventDefault();
+    window.closeLamaCommandDoc();
+});
+
+function updateLamaFeatureUi(status = null, errorText = '') {
+    const els = getLamaFeatureElements();
+    if (!els.view) return;
+
+    const hasStatus = !!status;
+    const running = !!status?.running;
+    const ready = !!status?.ready;
+    const installed = !!status?.installed;
+    const packageVersion = status?.package_version ? ` v${status.package_version}` : '';
+    const fallbackPort = normalizeLamaPort(els.portInput?.value, lamaLastKnownPort);
+    const port = normalizeLamaPort(status?.port, fallbackPort);
+    if (hasStatus) {
+        lamaLastKnownPort = port;
+        lamaLastKnownExecutablePath = status?.executable_path || status?.executablePath || lamaLastKnownExecutablePath;
+        lamaLastKnownDevice = status?.device || lamaLastKnownDevice;
+        lamaLastKnownModelPath = status?.model_path || status?.modelPath || lamaLastKnownModelPath;
+        lamaLastKnownModelDownloaded = !!(status?.model_downloaded ?? status?.modelDownloaded);
+        lamaLastKnownModelSizeBytes = Number(status?.model_size_bytes ?? status?.modelSizeBytes ?? lamaLastKnownModelSizeBytes ?? 0);
+        if (status?.python_path || status?.pythonPath) {
+            lamaLastKnownPythonPath = status?.python_path || status?.pythonPath || lamaLastKnownPythonPath;
+        }
+    }
+    const url = status?.url || `http://127.0.0.1:${port}`;
+    const modelSizeText = formatByteSize(lamaLastKnownModelSizeBytes);
+    renderLamaCommandDoc();
+
+    if (els.status) {
+        els.status.classList.remove('running', 'error');
+        if (errorText) {
+            els.status.classList.add('error');
+            els.status.textContent = '状态异常';
+        } else if (!installed) {
+            els.status.textContent = '未安装';
+        } else if (running && ready) {
+            els.status.classList.add('running');
+            els.status.textContent = `运行中${packageVersion} · ${url}`;
+        } else if (running) {
+            els.status.textContent = `启动中${packageVersion} · ${url}`;
+        } else {
+            els.status.textContent = `已安装${packageVersion} · 服务未启动`;
+        }
+    }
+
+    if (els.modelStatus) {
+        els.modelStatus.classList.remove('running', 'error');
+        if (lamaLastKnownModelDownloaded) {
+            els.modelStatus.classList.add('running');
+            els.modelStatus.textContent = modelSizeText
+                ? `模型已下载 · ${modelSizeText}`
+                : '模型已下载';
+        } else {
+            els.modelStatus.classList.add('error');
+            els.modelStatus.textContent = '模型未下载';
+        }
+    }
+
+    if (els.portInput) {
+        els.portInput.disabled = lamaServiceActionInProgress;
+        if (hasStatus && document.activeElement !== els.portInput) {
+            els.portInput.value = String(port);
+        }
+    }
+    if (els.applyPortBtn) {
+        els.applyPortBtn.disabled = lamaServiceActionInProgress || running;
+    }
+    if (els.installBtn) {
+        els.installBtn.disabled = lamaServiceActionInProgress || installed;
+    }
+    if (els.uninstallBtn) {
+        els.uninstallBtn.disabled = lamaServiceActionInProgress || !installed;
+    }
+    if (els.startBtn) {
+        els.startBtn.disabled = lamaServiceActionInProgress || running || !installed;
+    }
+    if (els.stopBtn) {
+        els.stopBtn.disabled = lamaServiceActionInProgress || !running;
+    }
+    if (els.reloadBtn) {
+        els.reloadBtn.disabled = lamaServiceActionInProgress || !ready;
+    }
+    if (els.refreshBtn) {
+        els.refreshBtn.disabled = lamaServiceActionInProgress;
+    }
+
+    if (els.empty) {
+        if (errorText) {
+            els.empty.innerHTML = `<div>服务状态查询失败</div><div>${escapeHtml(String(errorText))}</div>`;
+            els.empty.classList.remove('hidden');
+        } else if (!installed) {
+            els.empty.innerHTML = '<div>lama-cleaner 未安装</div><div>点击“安装服务”后，再启动服务即可在应用内使用去水印。</div>';
+            els.empty.classList.remove('hidden');
+        } else if (!lamaLastKnownModelDownloaded) {
+            els.empty.innerHTML = `<div>big-lama.pt 模型未下载</div><div>检测路径：<code>${escapeHtml(lamaLastKnownModelPath)}</code></div><div>可先启动服务让其自动下载，或执行“命令文档”里的模型检查命令。</div>`;
+            els.empty.classList.remove('hidden');
+        } else if (!running) {
+            els.empty.innerHTML = `<div>lama-cleaner 服务未启动</div><div>点击“启动服务”，命令等价于：<code>lama-cleaner --device=cpu --port=${port}</code></div>`;
+            els.empty.classList.remove('hidden');
+        } else if (!ready) {
+            els.empty.innerHTML = '<div>lama-cleaner 正在启动...</div><div>请稍等几秒后点击“刷新状态”</div>';
+            els.empty.classList.remove('hidden');
+        } else {
+            els.empty.classList.add('hidden');
+        }
+    }
+
+    if (els.frame) {
+        if (running) {
+            if (ready) {
+                if (els.frame.dataset.baseUrl !== url) {
+                    els.frame.dataset.baseUrl = url;
+                    els.frame.src = url;
+                } else if (!els.frame.src || els.frame.src === 'about:blank') {
+                    els.frame.src = url;
+                }
+            }
+        } else {
+            els.frame.dataset.baseUrl = url;
+            if (els.frame.src !== 'about:blank') {
+                els.frame.src = 'about:blank';
+            }
+        }
+    }
+}
+
+async function applyLamaPortConfigInternal(options = {}) {
+    const { silent = false, stopIfRunning = true } = options;
+    const els = getLamaFeatureElements();
+    const inputPort = normalizeLamaPort(els.portInput?.value, 8088);
+
+    if (els.portInput) {
+        els.portInput.value = String(inputPort);
+    }
+
+    try {
+        const runtime = await invoke('get_lama_runtime_config');
+        const currentPort = normalizeLamaPort(runtime?.port, 8088);
+        if (currentPort === inputPort) {
+            return { changed: false, port: currentPort };
+        }
+
+        if (stopIfRunning) {
+            try {
+                await invoke('stop_lama_cleaner');
+            } catch (error) {
+                if (!silent) {
+                    showToast(`停止旧端口服务失败: ${error}`);
+                }
+            }
+        }
+
+        const executablePath = runtime?.executable_path || runtime?.executablePath || 'lama-cleaner';
+        const device = runtime?.device || 'cpu';
+        await invoke('set_lama_runtime_config', {
+            executablePath,
+            device,
+            port: inputPort,
+        });
+        return { changed: true, port: inputPort };
+    } catch (error) {
+        if (!silent) {
+            showToast(`设置端口失败: ${error}`);
+        }
+        throw error;
+    }
+}
+
+async function refreshLamaCleanerStatusInternal(options = {}) {
+    const { silent = false } = options;
+    try {
+        const status = await invoke('get_lama_cleaner_status');
+        updateLamaFeatureUi(status);
+        return status;
+    } catch (error) {
+        updateLamaFeatureUi(null, String(error));
+        if (!silent) {
+            showToast(`获取 lama-cleaner 状态失败: ${error}`);
+        }
+        return null;
+    }
+}
+
+window.refreshLamaCleanerStatus = async function() {
+    await refreshLamaCleanerStatusInternal({ silent: false });
+};
+
+window.applyLamaPortConfig = async function() {
+    if (lamaServiceActionInProgress) return;
+    lamaServiceActionInProgress = true;
+    updateLamaFeatureUi(null);
+    try {
+        const result = await applyLamaPortConfigInternal({ silent: false, stopIfRunning: true });
+        if (result?.changed) {
+            showToast(`lama-cleaner 端口已设置为 ${result.port}`);
+        } else {
+            showToast(`端口未变化，仍为 ${result?.port || 8088}`);
+        }
+    } finally {
+        lamaServiceActionInProgress = false;
+        await refreshLamaCleanerStatusInternal({ silent: true });
+    }
+};
+
+window.startLamaCleanerService = async function() {
+    if (lamaServiceActionInProgress) return;
+    lamaServiceActionInProgress = true;
+    updateLamaFeatureUi(null);
+    try {
+        await applyLamaPortConfigInternal({ silent: true, stopIfRunning: true });
+        const status = await invoke('start_lama_cleaner');
+        updateLamaFeatureUi(status);
+        if (status?.ready) {
+            showToast('lama-cleaner 已启动');
+        } else {
+            showToast('lama-cleaner 已拉起，正在等待服务就绪');
+        }
+        await refreshLamaCleanerStatusInternal({ silent: true });
+    } catch (error) {
+        updateLamaFeatureUi(null, String(error));
+        showToast(`启动 lama-cleaner 失败: ${error}`);
+    } finally {
+        lamaServiceActionInProgress = false;
+        await refreshLamaCleanerStatusInternal({ silent: true });
+    }
+};
+
+window.installLamaCleanerService = async function() {
+    if (lamaServiceActionInProgress) return;
+    lamaServiceActionInProgress = true;
+    updateLamaFeatureUi(null);
+    try {
+        await invoke('install_lama_cleaner');
+        showToast('lama-cleaner 安装完成');
+    } catch (error) {
+        showToast(`安装 lama-cleaner 失败: ${error}`);
+    } finally {
+        lamaServiceActionInProgress = false;
+        await refreshLamaCleanerStatusInternal({ silent: true });
+    }
+};
+
+window.uninstallLamaCleanerService = async function() {
+    if (lamaServiceActionInProgress) return;
+    const shouldUninstall = window.confirm('确认卸载 lama-cleaner 吗？这会先停止服务。');
+    if (!shouldUninstall) return;
+
+    lamaServiceActionInProgress = true;
+    updateLamaFeatureUi(null);
+    try {
+        await invoke('uninstall_lama_cleaner');
+        showToast('lama-cleaner 已卸载');
+    } catch (error) {
+        showToast(`卸载 lama-cleaner 失败: ${error}`);
+    } finally {
+        lamaServiceActionInProgress = false;
+        await refreshLamaCleanerStatusInternal({ silent: true });
+    }
+};
+
+async function stopLamaCleanerServiceInternal(options = {}) {
+    const { silent = false, force = false } = options;
+    if (lamaServiceActionInProgress && !force) return;
+    if (!force) {
+        lamaServiceActionInProgress = true;
+        updateLamaFeatureUi(null);
+    }
+    try {
+        await invoke('stop_lama_cleaner');
+        if (!silent) {
+            showToast('lama-cleaner 已停止');
+        }
+    } catch (error) {
+        if (!silent) {
+            showToast(`停止 lama-cleaner 失败: ${error}`);
+        }
+    } finally {
+        if (!force) {
+            lamaServiceActionInProgress = false;
+        }
+        await refreshLamaCleanerStatusInternal({ silent: true });
+    }
+}
+
+window.stopLamaCleanerService = async function() {
+    await stopLamaCleanerServiceInternal({ silent: false, force: false });
+};
+
+window.reloadLamaCleanerFrame = function() {
+    const els = getLamaFeatureElements();
+    if (!els.frame) return;
+    const baseUrl = els.frame.dataset.baseUrl || 'http://127.0.0.1:8088';
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    els.frame.src = `${baseUrl}${sep}_t=${Date.now()}`;
+};
+
+function setFeatureView(feature) {
+    const home = document.getElementById('featureHome');
+    const postman = document.getElementById('postmanApp');
+    const sam = document.getElementById('samFeatureView');
+    const lama = document.getElementById('lamaFeatureView');
+    const backBtn = document.getElementById('featureBackBtn');
+    const previousFeature = activeFeature;
+    const next = feature === 'postman' || feature === 'sam' || feature === 'lama' ? feature : 'home';
+
+    if (!home || !postman || !sam || !lama || !backBtn) return;
+    activeFeature = next;
+
+    if (previousFeature === 'lama' && next !== 'lama') {
+        void stopLamaCleanerServiceInternal({ silent: true, force: true });
+    }
+
+    if (next === 'postman') {
+        home.classList.add('hidden');
+        sam.classList.add('hidden');
+        lama.classList.add('hidden');
+        postman.classList.remove('hidden');
+        backBtn.classList.remove('hidden');
+        syncWorkspaceTopbarState();
+        syncRightSidebarState();
+        updateRequestTabsOverflowControls();
+        updateRequestWorkspaceState();
+        return;
+    }
+
+    if (next === 'sam') {
+        home.classList.add('hidden');
+        postman.classList.add('hidden');
+        lama.classList.add('hidden');
+        sam.classList.remove('hidden');
+        backBtn.classList.remove('hidden');
+        return;
+    }
+
+    if (next === 'lama') {
+        home.classList.add('hidden');
+        postman.classList.add('hidden');
+        sam.classList.add('hidden');
+        lama.classList.remove('hidden');
+        backBtn.classList.remove('hidden');
+        void refreshLamaCleanerStatusInternal({ silent: true });
+        return;
+    }
+
+    postman.classList.add('hidden');
+    sam.classList.add('hidden');
+    lama.classList.add('hidden');
+    home.classList.remove('hidden');
+    backBtn.classList.add('hidden');
+}
+
+window.selectFeature = function(feature) {
+    setFeatureView(feature);
+};
+
+window.backToFeatureHome = function() {
+    setFeatureView('home');
+};
+
+function syncRightSidebarState() {
+    const shell = document.getElementById('rightShell');
+    const panel = document.getElementById('rightSidebarPanel');
+    const resizer = document.getElementById('rightSidebarResizer');
+    if (!shell || !panel || !resizer) return;
+
+    const panelWidth = panel.getBoundingClientRect().width;
+    const collapsed = shell.classList.contains('collapsed') || panelWidth < 8;
+    shell.classList.toggle('collapsed', collapsed);
+    resizer.classList.toggle('hidden', collapsed);
+}
+
+window.switchRightSidebar = function(tab, evt) {
+    activeRightSidebarTab = tab || 'curl';
+    document.querySelectorAll('.right-icon-sidebar .right-icon-item').forEach((item) => {
+        item.classList.remove('active');
+    });
+
+    const target = getEventTarget(evt);
+    const button = target?.closest ? target.closest('.right-icon-item') : null;
+    if (button) {
+        button.classList.add('active');
+    }
+
+    const panel = document.getElementById('rightSidebarPanel');
+    const shell = document.getElementById('rightShell');
+    if (panel && shell && (shell.classList.contains('collapsed') || panel.getBoundingClientRect().width < 8)) {
+        shell.classList.remove('collapsed');
+        panel.style.width = '320px';
+    }
+
+    const curlPanel = document.getElementById('rightCurlPanel');
+    if (curlPanel) {
+        curlPanel.classList.toggle('hidden', activeRightSidebarTab !== 'curl');
+    }
+
+    syncRightSidebarState();
+    renderCurrentRequestCurl();
+};
+
+function escapeShellSingleQuotes(value) {
+    return String(value ?? '').replace(/'/g, `'\"'\"'`);
+}
+
+function quoteShellArg(value) {
+    return `'${escapeShellSingleQuotes(value)}'`;
+}
+
+function hasHeaderIgnoreCase(headers, headerName) {
+    const target = String(headerName || '').toLowerCase();
+    return headers.some((entry) => String(entry.key || '').toLowerCase() === target);
+}
+
+function pushHeaderIfMissing(headers, headerName, value) {
+    if (!headerName || value == null || value === '') return;
+    if (hasHeaderIgnoreCase(headers, headerName)) return;
+    headers.push({ key: String(headerName), value: String(value) });
+}
+
+function collectBodyFieldsForCurl(fields) {
+    if (!Array.isArray(fields)) return [];
+    return fields.filter((item) =>
+        item &&
+        item.enabled !== false &&
+        String(item.key || '').trim().length > 0
+    );
+}
+
+function buildCurlCommandFromRequest(tab) {
+    if (!tab) return 'No active request tab.';
+
+    const method = normalizeMethodValue(tab.method || 'GET');
+    const url = (tab.url || '').trim();
+    const headers = (Array.isArray(tab.headers) ? tab.headers : [])
+        .filter((item) => item && item.enabled !== false && String(item.key || '').trim())
+        .map((item) => ({
+            key: String(item.key || '').trim(),
+            value: String(item.value ?? '').trim()
+        }));
+
+    const bodyType = tab.bodyType || 'none';
+    const bodyLines = [];
+    if (bodyType === 'raw') {
+        const rawBody = tab.body || '';
+        if (rawBody) {
+            bodyLines.push(`  --data-raw ${quoteShellArg(rawBody)}`);
+        }
+        pushHeaderIfMissing(headers, 'Content-Type', getRawContentType(tab.rawFormat || 'json'));
+    } else if (bodyType === 'x-www-form-urlencoded') {
+        const fields = collectBodyFieldsForCurl(tab.bodyFields);
+        const encoded = fields
+            .map((field) =>
+                `${encodeURIComponent(String(field.key ?? ''))}=${encodeURIComponent(String(field.value ?? ''))}`
+            )
+            .join('&');
+        if (encoded) {
+            bodyLines.push(`  --data-raw ${quoteShellArg(encoded)}`);
+        }
+        pushHeaderIfMissing(headers, 'Content-Type', 'application/x-www-form-urlencoded');
+    } else if (bodyType === 'form-data') {
+        const fields = collectBodyFieldsForCurl(tab.bodyFields);
+        fields.forEach((field) => {
+            const pair = `${String(field.key ?? '')}=${String(field.value ?? '')}`;
+            bodyLines.push(`  -F ${quoteShellArg(pair)}`);
+        });
+    } else if (bodyType === 'binary') {
+        const binary = tab.binaryBody || '';
+        if (binary) {
+            bodyLines.push(`  --data-binary ${quoteShellArg(binary)}`);
+        }
+        pushHeaderIfMissing(headers, 'Content-Type', 'application/octet-stream');
+    } else if (bodyType === 'graphql') {
+        const query = String(tab.graphqlQuery || '');
+        const rawVars = String(tab.graphqlVariables || '').trim();
+        let variables = {};
+        if (rawVars) {
+            try {
+                variables = JSON.parse(rawVars);
+            } catch {
+                variables = rawVars;
+            }
+        }
+        const payload = JSON.stringify({ query, variables });
+        bodyLines.push(`  --data-raw ${quoteShellArg(payload)}`);
+        pushHeaderIfMissing(headers, 'Content-Type', 'application/json');
+    }
+
+    const lines = [];
+    lines.push(`curl ${quoteShellArg(url || 'https://example.com')}`);
+    if (method !== 'GET') {
+        lines.push(`  -X ${method}`);
+    }
+
+    headers.forEach((header) => {
+        lines.push(`  -H ${quoteShellArg(`${header.key}: ${header.value}`)}`);
+    });
+    bodyLines.forEach((line) => lines.push(line));
+
+    return lines.join(' \\\n');
+}
+
+function renderCurrentRequestCurl() {
+    const preview = document.getElementById('rightCurlPreview');
+    if (!preview) return;
+    if (activeRightSidebarTab !== 'curl') return;
+
+    const tab = getActiveTab();
+    preview.textContent = buildCurlCommandFromRequest(tab);
+}
+
+window.copyCurrentRequestCurl = async function() {
+    const preview = document.getElementById('rightCurlPreview');
+    if (!preview) return;
+    const text = preview.textContent || '';
+    if (!text.trim()) {
+        showToast('No cURL content to copy', 'error');
+        return;
+    }
+
+    try {
+        if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            const temp = document.createElement('textarea');
+            temp.value = text;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            temp.remove();
+        }
+        showToast('cURL copied');
+    } catch (error) {
+        console.error('Copy cURL error:', error);
+        showToast('Failed to copy cURL', 'error');
+    }
 };
 
 // ==================== Collections 管理 ====================
@@ -4488,6 +5316,14 @@ function initResizers() {
     const minSidebarWidth = 220;
     const maxSidebarWidth = 420;
     const collapseThreshold = 120;
+    const rightSidebarResizer = document.getElementById('rightSidebarResizer');
+    const rightShell = document.getElementById('rightShell');
+    const rightSidebarPanel = document.getElementById('rightSidebarPanel');
+    const rightIconSidebar = document.getElementById('rightIconSidebar');
+    let isResizingRightSidebar = false;
+    const minRightSidebarWidth = 260;
+    const maxRightSidebarWidth = 620;
+    const rightCollapseThreshold = 120;
     
     sidebarResizer.addEventListener('mousedown', (e) => {
         isResizingSidebar = true;
@@ -4514,12 +5350,45 @@ function initResizers() {
         sidebar.style.width = `${newWidth}px`;
         syncWorkspaceTopbarState();
     });
+
+    if (rightSidebarResizer && rightShell && rightSidebarPanel && rightIconSidebar) {
+        rightSidebarResizer.addEventListener('mousedown', (e) => {
+            if (rightShell.classList.contains('collapsed') || rightSidebarPanel.getBoundingClientRect().width < 8) {
+                return;
+            }
+            isResizingRightSidebar = true;
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            e.preventDefault();
+        });
+    }
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizingRightSidebar || !rightShell || !rightSidebarPanel || !rightIconSidebar) return;
+
+        const iconWidth = rightIconSidebar.getBoundingClientRect().width;
+        let newWidth = window.innerWidth - e.clientX - iconWidth;
+
+        if (newWidth <= rightCollapseThreshold) {
+            rightShell.classList.add('collapsed');
+            rightSidebarPanel.style.width = '0px';
+            syncRightSidebarState();
+            return;
+        }
+
+        rightShell.classList.remove('collapsed');
+        newWidth = Math.max(minRightSidebarWidth, Math.min(maxRightSidebarWidth, newWidth));
+        rightSidebarPanel.style.width = `${Math.round(newWidth)}px`;
+        syncRightSidebarState();
+    });
     
     document.addEventListener('mouseup', () => {
         isResizingSidebar = false;
+        isResizingRightSidebar = false;
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
         syncWorkspaceTopbarState();
+        syncRightSidebarState();
     });
     
     // 水平分割线（请求/响应面板）
@@ -4653,8 +5522,26 @@ function buildUrlWithQuery(rawUrl, queryParams) {
 
 function parseCurlCommand(input) {
     const normalized = input.replace(/\\\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-    const methodMatch = normalized.match(/(?:^|\s)(?:-X|--request)\s+([A-Za-z]+)/);
-    const method = methodMatch ? methodMatch[1].toUpperCase() : 'GET';
+    const methodMatch = normalized.match(/(?:^|\s)(?:-X|--request)(?:\s+|=)([A-Za-z]+)/i)
+        || normalized.match(/(?:^|\s)-X([A-Za-z]+)/i);
+    const explicitMethod = methodMatch ? methodMatch[1].toUpperCase() : '';
+    const hasHeadFlag = /(?:^|\s)(?:--head|-I)(?:\s|$)/i.test(normalized);
+    const hasGetFlag = /(?:^|\s)(?:--get|-G)(?:\s|$)/i.test(normalized);
+    const hasUploadFlag = /(?:^|\s)(?:--upload-file|-T)(?:\s|=|$)/i.test(normalized);
+    const hasDataFlag = /(?:^|\s)(?:--data(?:-raw|-binary|-urlencode)?|-d|--form|-F)(?:\s|=|$)/i.test(normalized);
+
+    let method = 'GET';
+    if (explicitMethod) {
+        method = explicitMethod;
+    } else if (hasHeadFlag) {
+        method = 'HEAD';
+    } else if (hasGetFlag) {
+        method = 'GET';
+    } else if (hasUploadFlag) {
+        method = 'PUT';
+    } else if (hasDataFlag) {
+        method = 'POST';
+    }
 
     const urlMatch = normalized.match(/(?:^|\s)(['"])(https?:\/\/[^'"]+)\1/) || normalized.match(/(?:^|\s)(https?:\/\/\S+)/);
     const url = urlMatch ? (urlMatch[2] || urlMatch[1] || '').trim() : '';

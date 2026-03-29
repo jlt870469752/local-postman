@@ -21,10 +21,13 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.0.0", features = [] }
 tauri-plugin-log = "2.0.0"
-reqwest = { version = "0.11", features = ["json"] }
+tauri-plugin-dialog = "2.0.0"
+reqwest = { version = "0.11", features = ["json", "stream", "socks"] }
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4.31", features = ["serde"] }
 base64 = "0.22"
+futures-util = "0.3"
+dirs = "5.0"
 
 [features]
 default = []

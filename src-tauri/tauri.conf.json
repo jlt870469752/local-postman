@@ -30,7 +30,10 @@
           "windows": ["main"],
           "permissions": [
             "core:default",
-            "log:default"
+            "log:default",
+            "dialog:default",
+            "dialog:allow-open",
+            "dialog:allow-save"
           ]
         }
       ]
